@@ -1,6 +1,6 @@
 streamlit==1.30.0
-pandas==2.1.4
-torch==2.5.0  # Cập nhật
+pandas==2.0.3  # Downgrade để tương thích Python 3.13
+torch==2.5.0
 plotly==5.18.0
 streamlit-authenticator==0.2.3
 pyyaml==6.0.1
