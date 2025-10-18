@@ -1,252 +1,126 @@
 import streamlit as st
 import pandas as pd
-import yaml
+import plotly.express as px
 import os
-from streamlit_authenticator import Authenticate
-from model import load_data, train_model, generate_alerts, generate_report
-from view import create_charts
+import yaml
 
-# Cấu hình trang (đầu file)
-st.set_page_config(
-    page_title="AI Học Tập - Dự Báo Điểm",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Load config
-config = None
+# Load config (from ENV or file)
 config_path = 'config.yaml'
 if os.path.exists(config_path):
-    try:
-        with open(config_path, 'r', encoding='utf-8') as file:
-            config = yaml.safe_load(file)
-        st.info("Load config từ file local thành công!")
-    except Exception as e:
-        st.error(f"Lỗi load YAML: {e}")
-        st.stop()
-elif 'auth_config' in st.secrets:
-    try:
-        config = yaml.safe_load(st.secrets['auth_config'])
-        st.info("Load config từ secrets thành công!")
-    except Exception as e:
-        st.error(f"Lỗi load secrets: {e}")
-        st.stop()
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+elif 'AUTH_CONFIG' in os.environ:
+    config = yaml.safe_load(os.environ['AUTH_CONFIG'])
+
+# Sidebar for navigation
+st.sidebar.title("Menu")
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+# Authentication
+if not st.session_state.authenticated:
+    username = st.sidebar.text_input("Username")
+    password = st.sidebar.text_input("Password", type="password")
+    if st.sidebar.button("Login"):
+        if username in config['credentials']['usernames'] and config['credentials']['usernames'][username]['password'] == password:
+            st.session_state.authenticated = True
+            st.sidebar.success(f"Welcome, {config['credentials']['usernames'][username]['name']}!")
+        else:
+            st.sidebar.error("Invalid username or password")
 else:
-    st.error("Không tìm thấy config.yaml hoặc secrets!")
-    st.stop()
+    st.sidebar.button("Logout", on_click=lambda: setattr(st.session_state, 'authenticated', False))
 
-# Khởi tạo authenticator
-authenticator = Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
-)
+# Main content only if authenticated
+if st.session_state.authenticated:
+    st.title("AI Dự Báo Điểm Học Sinh")
 
-# Form login
-if 'authentication_status' not in st.session_state or not st.session_state['authentication_status']:
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Upload file or use demo data
+    uploaded_file = st.file_uploader("Upload CSV file", type="csv")
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+    else:
+        # Demo data with multiple subjects
+        df = pd.DataFrame({
+            "StudentID": ["S001", "S002", "S003"],
+            "Math": [7.5, 8.0, 6.5],
+            "Physics": [8.0, 7.5, 7.0],
+            "Chemistry": [7.2, 6.8, 7.5],
+            "English": [8.5, 7.0, 6.0],
+            "Previous_Math": [7.0, 7.8, 6.0],
+            "Previous_Physics": [7.5, 7.2, 6.5],
+            "Previous_Chemistry": [6.8, 6.5, 7.0],
+            "Previous_English": [8.0, 6.5, 5.5]
+        })
+
+    # Center the chart
+    col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
-        st.markdown("### 🛡️ Đăng Nhập Để Truy Cập")
-        authentication_status = authenticator.login(
-            location='main',
-            fields={'Form name': 'Đăng Nhập', 'Username': 'Tên đăng nhập', 'Password': 'Mật khẩu', 'Login': 'Đăng Nhập'},
-            key='auth_login_form_unique'
-        )
-    
-    if st.session_state.get('authentication_status'):
-        name = st.session_state.get('name')
-        username = st.session_state.get('username')
-        st.session_state['name'] = name
-        st.session_state['username'] = username
-        st.session_state['authentication_status'] = True
-        st.success(f"Chào mừng {name}! Đang tải...")
-        st.rerun()
-    elif st.session_state.get('authentication_status') is False:
-        st.error('Username/password sai!')
-    elif st.session_state.get('authentication_status') is None:
-        st.warning('Vui lòng nhập thông tin.')
-    st.stop()
-else:
-    # Đã login
-    name = st.session_state.get('name')
-    username = st.session_state.get('username')
-    st.sidebar.success(f"Chào {name} (Trường: {username})")
-    authenticator.logout(location='sidebar', button_name='Đăng Xuất', key='auth_logout_unique')
+        st.subheader("Biểu Đồ Dự Báo Điểm")
+        # Dynamic subjects for line chart
+        current_subjects = [col for col in df.columns if not col.startswith("Previous_")]
+        fig = px.line(df, x="StudentID", y=current_subjects,
+                      title="Dự Báo Điểm Hiện Tại",
+                      labels={"value": "Điểm", "variable": "Môn Học"},
+                      color_discrete_sequence=px.colors.qualitative.Plotly)
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Hero Section
-    st.markdown("""
-    # 🧠 **Hệ thống AI Dự báo Điểm Học sinh**
-    ### Phân tích điểm học tập, dự báo kết quả, cảnh báo kịp thời & **biểu đồ tương tác**
-    *Upload CSV hoặc nhập URL để bắt đầu. Hỗ trợ AI PyTorch cho dự báo chính xác cao.*
-    """, unsafe_allow_html=True)
+    # Comparison section below chart
+    st.subheader("So Sánh Tiến Bộ Với Lần Trước")
+    col_progress = st.columns(2)
+    with col_progress[0]:
+        st.write("**Điểm Hiện Tại**")
+        st.write(df[["StudentID"] + current_subjects])
+    with col_progress[1]:
+        st.write("**Điểm Lần Trước**")
+        previous_subjects = [col for col in df.columns if col.startswith("Previous_")]
+        st.write(df[["StudentID"] + previous_subjects])
 
-    # Cache với filter theo trường
-    @st.cache_data
-    def cached_load_and_train_filtered(source, school_id):
-        df = load_data(source)
-        if 'SchoolID' not in df.columns:
-            df['SchoolID'] = school_id
-        df = df[df['SchoolID'] == school_id]
-        if df.empty:
-            raise ValueError("Không có dữ liệu cho trường này!")
-        model = train_model(df, epochs=10)
-        return df, model
+    # Progress calculation for all subjects
+    st.write("**Tiến Bộ**")
+    progress_data = {}
+    for subject in current_subjects:
+        if f"Previous_{subject}" in df.columns:
+            progress_data[f"{subject}_Progress"] = df[subject] - df[f"Previous_{subject}"]
+    progress_df = pd.DataFrame({
+        "StudentID": df["StudentID"],
+        **progress_data
+    })
+    st.write(progress_df)
 
-    # Sidebar
-    with st.sidebar:
-        st.header("⚙️ **Cấu hình**")
-        source = st.text_input("📁 Nguồn dữ liệu (CSV path hoặc URL JSON)", value="your_grades.csv")
-        upload_file = st.file_uploader("📤 Hoặc upload CSV trực tiếp", type="csv")
+    # Detailed Progress Chart for all subjects
+    st.subheader("Biểu Đồ Tiến Bộ Chi Tiết")
+    progress_melt = pd.melt(progress_df, id_vars=["StudentID"], 
+                            value_vars=[col for col in progress_df.columns if col.endswith("_Progress")],
+                            var_name="Subject", value_name="Progress")
+    # Remove "_Progress" from subject names for display
+    progress_melt["Subject"] = progress_melt["Subject"].str.replace("_Progress", "")
+    fig_progress = px.bar(progress_melt, x="StudentID", y="Progress", color="Subject",
+                         title="Tiến Bộ Học Tập Theo Học Sinh",
+                         labels={"Progress": "Chênh Lệch Điểm", "StudentID": "Mã Học Sinh"},
+                         color_discrete_sequence=px.colors.qualitative.Plotly)
+    fig_progress.update_traces(text=progress_melt["Progress"].round(2), textposition="auto")
+    fig_progress.update_layout(
+        xaxis_title="Mã Học Sinh",
+        yaxis_title="Chênh Lệch Điểm",
+        showlegend=True,
+        height=400
+    )
+    st.plotly_chart(fig_progress, use_container_width=True)
 
-        if upload_file is not None:
-            df_temp = pd.read_csv(upload_file)
-            df_temp['SchoolID'] = username
-            df_temp.to_csv("temp_upload.csv", index=False)
-            source = "temp_upload.csv"
-            st.success("✅ File đã upload thành công!")
-
-        if st.button("🎯 **Quick Demo** (Dữ liệu mẫu)"):
-            source = "your_grades.csv"
-            st.rerun()
-
-        show_all_charts = st.checkbox("📊 Hiển thị tất cả biểu đồ (có thể chậm với dữ liệu lớn)", value=False)
-
-    # Nút chạy
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("🚀 **Chạy Phân tích AI**", type="primary"):
-            if source:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                with st.spinner("Đang tải..."):
-                    try:
-                        status_text.text("Đang tải dữ liệu...")
-                        progress_bar.progress(20)
-                        df, model = cached_load_and_train_filtered(source, username)
-                        status_text.text("Đang huấn luyện AI...")
-                        progress_bar.progress(50)
-                        status_text.text("Đang tạo báo cáo & biểu đồ...")
-                        progress_bar.progress(80)
-                        alerts = generate_alerts(df, model)
-                        report = generate_report(df, alerts)
-                        charts = create_charts(df)
-                        # Lưu session
-                        st.session_state['df'] = df
-                        st.session_state['alerts'] = alerts
-                        st.session_state['report'] = report
-                        st.session_state['charts'] = charts
-                        progress_bar.progress(100)
-                        status_text.text("Hoàn tất!")
-                        st.balloons()
-                    except Exception as e:
-                        st.error(f"Lỗi: {str(e)}")
+    # Progress Notifications for all subjects
+    st.subheader("Thông Báo Tiến Bộ")
+    for index, row in progress_df.iterrows():
+        student_id = row["StudentID"]
+        for subject in [col.replace("_Progress", "") for col in progress_df.columns if col.endswith("_Progress")]:
+            progress_col = f"{subject}_Progress"
+            progress_value = row[progress_col]
+            if progress_value > 0.5:
+                st.success(f"Học sinh {student_id}: Tiến bộ {subject} +{progress_value:.2f} điểm!")
+            elif -0.5 <= progress_value <= 0.5:
+                st.warning(f"Học sinh {student_id}: Tiến bộ {subject} ổn định ({progress_value:.2f} điểm)")
             else:
-                st.error("Vui lòng nhập nguồn dữ liệu!")
+                st.error(f"Học sinh {student_id}: Giảm {subject} {abs(progress_value):.2f} điểm!")
 
-    # Tabs (lấy từ session)
-    if 'df' in st.session_state:
-        df = st.session_state['df']
-        alerts = st.session_state['alerts']
-        report = st.session_state['report']
-        charts = st.session_state['charts']
-        
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Dữ liệu", "⚠️ Dự báo & Cảnh báo", "📈 Báo cáo", "🖼️ Biểu đồ Tương tác"])
-
-        with tab1:
-            st.subheader("📋 Dữ liệu Đầu vào")
-            st.dataframe(df.head(10), use_container_width=True)
-            st.caption(f"*Tổng {len(df)} bản ghi. Cột AvgMidterm là feature AI tự tính.*")
-
-        with tab2:
-            st.subheader("🔮 Dự báo Điểm & Cảnh báo")
-            warnings_col1, warnings_col2 = st.columns(2)
-            with warnings_col1:
-                st.metric("Số cảnh báo (Dự báo <5.0)", sum(1 for alert in alerts if "CẢNH BÁO" in alert['msg']))
-            with warnings_col2:
-                st.metric("Số thông báo tốt", sum(1 for alert in alerts if "TỐT" in alert['msg']))
-            
-            for alert in alerts:
-                level_emoji = "🚨 **CẢNH BÁO**" if "CẢNH BÁO" in alert['msg'] else "✅ **Tốt**"
-                with st.expander(f"{level_emoji}: {alert['subject']} (ID: {alert['student_id']})"):
-                    st.write(f"*{alert['msg']}*")
-                    st.caption(f"Lớp: {alert['class']}")
-
-        with tab3:
-            st.subheader("📊 Báo cáo Chi tiết")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("👥 Tổng học sinh", report['Tổng học sinh'])
-            with col2:
-                st.metric("🏫 Tổng lớp", report['Tổng lớp'])
-            with col3:
-                st.metric("📈 Trung bình toàn trường", f"{report['Trung bình toàn trường']:.2f}/10")
-            
-            col4, col5 = st.columns(2)
-            with col4:
-                st.metric("⚠️ Số cảnh báo", report['Số lượng cảnh báo'])
-            with col5:
-                st.metric("📥 Chi tiết cảnh báo", len(report['Chi tiết cảnh báo']))
-            
-            subjects = {k: v for k, v in report.items() if k.startswith('Trung bình ')}
-            if subjects:
-                st.subheader("📚 Trung bình theo môn")
-                subject_df = pd.DataFrame(list(subjects.items()), columns=['Môn học', 'Điểm TB'])
-                st.dataframe(subject_df, use_container_width=True)
-            
-            excel_path = 'bao_cao_ban_giam_hieu.xlsx'
-            if os.path.exists(excel_path):
-                with open(excel_path, 'rb') as file:
-                    st.download_button(
-                        label="📥 Tải Báo cáo Excel",
-                        data=file.read(),
-                        file_name='bao_cao_ban_giam_hieu.xlsx',
-                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                        use_container_width=True
-                    )
-
-        with tab4:
-            st.subheader("🖼️ Biểu đồ Tương tác (Plotly)")
-            st.info("💡 **Tương tác**: Hover để xem chi tiết, zoom/pan để khám phá dữ liệu.")
-            
-            if not show_all_charts:
-                st.warning("⚠️ **Chế độ nhanh**: Chỉ hiển thị 1-2 ví dụ đầu. Tích checkbox sidebar để xem tất cả.")
-                sample_keys = ['student_1', 'subject_Toán', 'class_A1', 'school_overview']
-                for key in sample_keys:
-                    if key in charts:
-                        with st.expander(key.replace('_', ' ').title()):
-                            st.plotly_chart(charts[key], use_container_width=True)
-            else:
-                st.subheader("👤 Biểu đồ Học sinh")
-                for key, fig in charts.items():
-                    if key.startswith('student_'):
-                        with st.expander(key.replace('student_', 'Học sinh ').replace('_', ' ')):
-                            st.plotly_chart(fig, use_container_width=True)
-                
-                st.subheader("📚 Biểu đồ Môn học")
-                for key, fig in charts.items():
-                    if key.startswith('subject_'):
-                        with st.expander(key.replace('subject_', 'Môn ').replace('_', ' ')):
-                            st.plotly_chart(fig, use_container_width=True)
-                
-                st.subheader("🏫 Biểu đồ Lớp học")
-                for key, fig in charts.items():
-                    if key.startswith('class_'):
-                        with st.expander(key.replace('class_', 'Lớp ').replace('_', ' ')):
-                            st.plotly_chart(fig, use_container_width=True)
-                
-                st.subheader("🌐 Tổng quan Toàn trường")
-                if 'school_overview' in charts:
-                    st.plotly_chart(charts['school_overview'], use_container_width=True)
-
-# Footer
-st.markdown("---")
-col_left, col_right = st.columns([3, 1])
-with col_left:
-    st.markdown("*👨‍💻 Dự án AI Dự báo Điểm Học sinh | Powered by Streamlit, Plotly & PyTorch*")
-with col_right:
-    st.markdown("[📧 Liên hệ](mailto:your-email@example.com)")
-
-if __name__ == "__main__":
-    pass
+    # Run AI button (placeholder)
+    if st.button("Chạy Phân Tích AI"):
+        st.write("Đang xử lý... (Thêm logic AI của bạn ở đây)")
