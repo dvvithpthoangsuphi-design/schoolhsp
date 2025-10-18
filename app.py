@@ -4,6 +4,10 @@ import plotly.express as px
 import os
 import yaml
 
+import streamlit as st
+st.set_option('server.headless', True)
+st.set_option('server.enableCORS', False)
+
 # Load config (from ENV or file)
 config_path = 'config.yaml'
 if os.path.exists(config_path):
