@@ -1,0 +1,8 @@
+streamlit==1.30.0
+pandas==2.1.4
+torch==2.5.0
+plotly==5.18.0
+streamlit-authenticator==0.3.2  # Cập nhật để tương thích Python 3.11
+pyyaml==6.0.1
+matplotlib==3.7.2
+numpy==1.24.3
