@@ -1,6 +1,7 @@
 
-
-config.yaml 
-temp_upload.csv 
-.streamlit/ 
-
+venv/
+__pycache__/
+*.pyc
+*.dll
+*.lib
+pyvenv.cfg
