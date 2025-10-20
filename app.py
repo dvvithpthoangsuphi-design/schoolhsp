@@ -4,15 +4,17 @@ import plotly.express as px
 import os
 import yaml
 
-# Load config from file
+# Load config from file or environment variable
 config_path = 'auth_config.yaml'
 config = None
 
 if os.path.exists(config_path):
     with open(config_path, 'r', encoding='utf-8') as file:
         config = yaml.safe_load(file)
+elif 'AUTH_CONFIG' in os.environ:
+    config = yaml.safe_load(os.environ['AUTH_CONFIG'])
 else:
-    st.error("File YAML không tồn tại tại: " + config_path)
+    st.error("File YAML không tồn tại hoặc biến môi trường AUTH_CONFIG không được thiết lập!")
 
 # Initialize session state
 if 'authenticated' not in st.session_state:
@@ -104,7 +106,7 @@ if st.session_state.authenticated:
     with col_progress[0]:
         st.write("**Điểm Hiện Tại**")
         if not df.empty and all(col in df.columns for col in current_subjects):
-            st.write(df[current_subjects])
+            st.write(df[["StudentID"] + current_subjects])
         else:
             st.write("Không có dữ liệu để hiển thị.")
     with col_progress[1]:
@@ -152,27 +154,19 @@ if st.session_state.authenticated:
     else:
         st.write("Không có dữ liệu để vẽ biểu đồ.")
 
-    # Simulate sending progress notifications to parents (hidden from screen)
-    def send_progress_notification(student_id, subject, progress_value):
-        # Giả lập gửi email/phân hệ thống cho phụ huynh
-        message = f"Thân gửi phụ huynh học sinh {student_id},\nHọc sinh có tiến bộ {subject}: "
-        if progress_value > 0.5:
-            message += f"+{progress_value:.2f} điểm!"
-        elif -0.5 <= progress_value <= 0.5:
-            message += f"ổn định ({progress_value:.2f} điểm)."
-        else:
-            message += f"giảm {abs(progress_value):.2f} điểm."
-        message += "\nTrân trọng,\nTrường học"
-        # Trong thực tế, dùng thư viện như smtplib để gửi email
-        print(f"Gửi thông báo cho phụ huynh {student_id}: {message}")  # Giả lập
-
-    # Progress calculation and notification (send to parents instead of display)
+    # Progress Notifications for all subjects
+    st.subheader("Thông Báo Tiến Bộ")
     for index, row in progress_df.iterrows():
         student_id = row["StudentID"]
         for subject in [col.replace("_Progress", "") for col in progress_df.columns if col.endswith("_Progress")]:
             progress_col = f"{subject}_Progress"
             progress_value = row[progress_col]
-            send_progress_notification(student_id, subject, progress_value)
+            if progress_value > 0.5:
+                st.success(f"Học sinh {student_id}: Tiến bộ {subject} +{progress_value:.2f} điểm!")
+            elif -0.5 <= progress_value <= 0.5:
+                st.warning(f"Học sinh {student_id}: Tiến bộ {subject} ổn định ({progress_value:.2f} điểm)")
+            else:
+                st.error(f"Học sinh {student_id}: Giảm {subject} {abs(progress_value):.2f} điểm!")
 
     # Run AI button (placeholder)
     if st.button("Chạy Phân Tích AI"):
