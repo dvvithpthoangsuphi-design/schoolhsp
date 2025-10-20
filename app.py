@@ -81,9 +81,8 @@ if st.session_state.authenticated:
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
         st.subheader("Biểu Đồ Dự Báo Điểm Toàn Trường")
-        current_subjects = [col for col in df.columns if not col.startswith("Previous_")]
-        melted_df = pd.melt(df, id_vars=["StudentID"], value_vars=current_subjects[1:],  # Loại StudentID khỏi y-axis
-                            var_name="Subject", value_name="Score")
+        current_subjects = [col for col in df.columns if not col.startswith("Previous_") and col != "StudentID"]
+        melted_df = pd.melt(df, id_vars=["StudentID"], value_vars=current_subjects, var_name="Subject", value_name="Score")
         fig = px.line(melted_df, x="StudentID", y="Score", color="Subject",
                       title="Điểm Hiện Tại Toàn Trường",
                       labels={"Score": "Điểm", "StudentID": "Mã Học Sinh"},
@@ -94,10 +93,10 @@ if st.session_state.authenticated:
         selected_student = st.selectbox("Chọn học sinh để xem chi tiết", df["StudentID"])
         if selected_student:
             student_data = df[df["StudentID"] == selected_student]
-            fig_student = px.line(student_data, x="StudentID", y=current_subjects[1:],  # Loại StudentID khỏi y-axis
-                                 title=f"Điểm Hiện Tại của {selected_student}",
-                                 labels={"value": "Điểm", "variable": "Môn Học"},
-                                 color_discrete_sequence=px.colors.qualitative.Plotly)
+            fig_student = px.line(student_data, x="StudentID", y=current_subjects,
+                                title=f"Điểm Hiện Tại của {selected_student}",
+                                labels={"value": "Điểm", "variable": "Môn Học"},
+                                color_discrete_sequence=px.colors.qualitative.Plotly)
             st.plotly_chart(fig_student, use_container_width=True)
 
     # Comparison section below chart
@@ -105,24 +104,26 @@ if st.session_state.authenticated:
     col_progress = st.columns(2)
     with col_progress[0]:
         st.write("**Điểm Hiện Tại**")
-        if not df.empty and all(col in df.columns for col in current_subjects):
-            st.write(df[["StudentID"] + current_subjects])
+        if not df.empty:
+            st.write(df[["StudentID"] + current_subjects])  # Chỉ lấy StudentID và current_subjects (không trùng lặp)
         else:
             st.write("Không có dữ liệu để hiển thị.")
     with col_progress[1]:
         st.write("**Điểm Lần Trước**")
         previous_subjects = [col for col in df.columns if col.startswith("Previous_")]
         if not df.empty and "StudentID" in df.columns and all(col in df.columns for col in previous_subjects):
-            st.write(df[["StudentID"] + previous_subjects])
+            st.write(df[["StudentID"] + previous_subjects])  # Hiển thị StudentID và previous_subjects
         else:
             st.write("Không có dữ liệu để hiển thị.")
 
     # Progress calculation for all subjects
     st.write("**Tiến Bộ**")
     progress_data = {}
-    for subject in current_subjects:
-        if f"Previous_{subject}" in df.columns:
-            progress_data[f"{subject}_Progress"] = df[subject] - df[f"Previous_{subject}"]
+    for subject in [col.replace("Previous_", "") for col in df.columns if col.startswith("Previous_")]:
+        current_col = subject
+        previous_col = f"Previous_{subject}"
+        if current_col in df.columns and previous_col in df.columns:
+            progress_data[f"{subject}_Progress"] = df[current_col] - df[previous_col]
     progress_df = pd.DataFrame({
         "StudentID": df["StudentID"],
         **progress_data
@@ -140,9 +141,9 @@ if st.session_state.authenticated:
     progress_melt["Subject"] = progress_melt["Subject"].str.replace("_Progress", "")
     if not progress_melt.empty:
         fig_progress = px.bar(progress_melt, x="StudentID", y="Progress", color="Subject",
-                             title="Tiến Bộ Học Tập Theo Học Sinh",
-                             labels={"Progress": "Chênh Lệch Điểm", "StudentID": "Mã Học Sinh"},
-                             color_discrete_sequence=px.colors.qualitative.Plotly)
+                            title="Tiến Bộ Học Tập Theo Học Sinh",
+                            labels={"Progress": "Chênh Lệch Điểm", "StudentID": "Mã Học Sinh"},
+                            color_discrete_sequence=px.colors.qualitative.Plotly)
         fig_progress.update_traces(text=progress_melt["Progress"].round(2), textposition="auto")
         fig_progress.update_layout(
             xaxis_title="Mã Học Sinh",
