@@ -4,3 +4,9 @@ plotly==5.18.0
 pyyaml==6.0.1
 openpyxl==3.1.5
 xlrd==2.0.1
+scikit-learn==1.5.0
+numpy==1.26.4
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.134.0
