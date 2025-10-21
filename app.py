@@ -30,7 +30,7 @@ if not st.session_state.authenticated and config and 'credentials' in config and
         if username in config['credentials']['usernames'] and config['credentials']['usernames'][username]['password'] == password:
             st.session_state.authenticated = True
             st.success("Đăng nhập thành công!")
-            st.experimental_rerun()
+            st.rerun()  # Thay st.experimental_rerun
         else:
             st.error("Tên người dùng hoặc mật khẩu không đúng!")
 elif not config:
@@ -47,7 +47,7 @@ if not st.session_state.authenticated and config and 'credentials' in config and
         if username in config['credentials']['usernames'] and config['credentials']['usernames'][username]['password'] == password:
             st.session_state.authenticated = True
             st.sidebar.success(f"Welcome, {username}!")
-            st.experimental_rerun()
+            st.rerun()  # Thay st.experimental_rerun
         else:
             st.sidebar.error("Invalid username or password")
 elif not config:
