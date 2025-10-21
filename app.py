@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import numpy as np
 import os
 import yaml
+import json
+from io import StringIO, BytesIO
 
 # Load config from file or environment variable
 config_path = 'auth_config.yaml'
@@ -61,162 +61,84 @@ if st.session_state.authenticated:
 if st.session_state.authenticated:
     st.title("AI Dự Báo Điểm Học Sinh")
 
-    # Upload file or generate demo data for 2000 students
-    uploaded_file = st.file_uploader("Upload CSV file", type="csv")
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-    else:
-        # Generate demo data for 2000 students
-        np.random.seed(42)
-        student_ids = [f"S{i:04d}" for i in range(1, 2001)]
-        subjects = ['Math', 'Physics', 'Chemistry', 'English']
-        previous_subjects = [f'Previous_{s}' for s in subjects]
-        data = {
-            'StudentID': student_ids,
-        }
-        for subject in subjects:
-            data[subject] = np.random.normal(7.0, 1.0, 2000).clip(0, 10)  # Điểm ngẫu nhiên trung bình 7, độ lệch 1
-            data[f'Previous_{subject}'] = data[subject] - np.random.normal(0.5, 0.5, 2000).clip(-2, 2)  # Tiến bộ ngẫu nhiên
-        df = pd.DataFrame(data)
-
-    # Sidebar filter
-    st.sidebar.subheader("Lọc Dữ Liệu")
-    grade_level = st.sidebar.selectbox("Chọn Lớp", options=["Tất cả"] + [f"Lớp {i}" for i in range(10, 13)])
-    score_range = st.sidebar.slider("Phạm Vi Điểm", 0.0, 10.0, (0.0, 10.0), 0.5)
-
-    # Filter data
-    if grade_level != "Tất cả":
-        df = df[df['StudentID'].str[1:3].astype(int) % 10 == int(grade_level[-1])]  # Giả lập lớp dựa trên ID
-    df = df[(df[subjects] >= score_range[0]).all(axis=1) & (df[subjects] <= score_range[1]).all(axis=1)]
-
-    # Tổng Quan Toàn Trường
-    st.subheader("Tổng Quan Toàn Trường")
-    if not df.empty:
-        # Thống kê trung bình và phân bố
-        avg_scores = df[subjects].mean()
-        st.write("**Trung Bình Điểm Hiện Tại Theo Môn Học:**")
-        st.write(avg_scores)
-
-        # Biểu đồ hộp (box plot) để xem phân bố điểm
-        melted_df = pd.melt(df, id_vars=['StudentID'], value_vars=subjects, var_name="Subject", value_name="Score")
-        fig_overview = px.box(melted_df, x="Subject", y="Score", title="Phân Bố Điểm Số Toàn Trường",
-                             labels={"Score": "Điểm", "Subject": "Môn Học"},
-                             color_discrete_sequence=px.colors.qualitative.Plotly)
-        st.plotly_chart(fig_overview, use_container_width=True)
-    else:
-        st.write("Không có dữ liệu để hiển thị.")
-
-    # Comparison section
-    st.subheader("So Sánh Tiến Bộ Với Lần Trước")
-    col_progress = st.columns(2)
-    with col_progress[0]:
-        st.write("**Điểm Hiện Tại**")
-        current_subjects = [col for col in df.columns if not col.startswith("Previous_") and col != "StudentID"]
-        if not df.empty:
-            st.write(df[["StudentID"] + current_subjects].head(10))  # Hiển thị 10 học sinh đầu để tránh quá tải
-        else:
-            st.write("Không có dữ liệu để hiển thị.")
-    with col_progress[1]:
-        st.write("**Điểm Lần Trước**")
-        previous_subjects = [col for col in df.columns if col.startswith("Previous_")]
-        if not df.empty and "StudentID" in df.columns and all(col in df.columns for col in previous_subjects):
-            st.write(df[["StudentID"] + previous_subjects].head(10))  # Hiển thị 10 học sinh đầu
-        else:
-            st.write("Không có dữ liệu để hiển thị.")
-
-    # Progress calculation
-    st.write("**Tiến Bộ**")
-    progress_data = {}
-    for subject in [col.replace("Previous_", "") for col in df.columns if col.startswith("Previous_")]:
-        current_col = subject
-        previous_col = f"Previous_{subject}"
-        if current_col in df.columns and previous_col in df.columns:
-            progress_data[f"{subject}_Progress"] = df[current_col] - df[previous_col]
-    progress_df = pd.DataFrame({
-        "StudentID": df["StudentID"],
-        **progress_data
-    })
-    if not progress_df.empty:
-        st.write(progress_df.head(10))  # Hiển thị 10 học sinh đầu
-    else:
-        st.write("Không có dữ liệu tiến bộ để hiển thị.")
-
-    # Detailed Progress Chart
-    st.subheader("Biểu Đồ Tiến Bộ Chi Tiết")
-    progress_melt = pd.melt(progress_df.head(100), id_vars=["StudentID"],  # Giới hạn 100 học sinh để tối ưu
-                            value_vars=[col for col in progress_df.columns if col.endswith("_Progress")],
-                            var_name="Subject", value_name="Progress")
-    progress_melt["Subject"] = progress_melt["Subject"].str.replace("_Progress", "")
-    if not progress_melt.empty:
-        fig_progress = px.bar(progress_melt, x="StudentID", y="Progress", color="Subject",
-                            title="Tiến Bộ Học Tập Theo Học Sinh",
-                            labels={"Progress": "Chênh Lệch Điểm", "StudentID": "Mã Học Sinh"},
-                            color_discrete_sequence=px.colors.qualitative.Plotly)
-        fig_progress.update_traces(text=progress_melt["Progress"].round(2), textposition="auto")
-        fig_progress.update_layout(
-            xaxis_title="Mã Học Sinh",
-            yaxis_title="Chênh Lệch Điểm",
-            showlegend=True,
-            height=400
-        )
-        st.plotly_chart(fig_progress, use_container_width=True)
-    else:
-        st.write("Không có dữ liệu để vẽ biểu đồ.")
-
-    # Progress Notifications
-    st.subheader("Thông Báo Tiến Bộ")
-    for index, row in progress_df.head(10).iterrows():  # Giới hạn 10 học sinh
-        student_id = row["StudentID"]
-        for subject in [col.replace("_Progress", "") for col in progress_df.columns if col.endswith("_Progress")]:
-            progress_col = f"{subject}_Progress"
-            progress_value = row[progress_col]
-            if progress_value > 0.5:
-                st.success(f"Học sinh {student_id}: Tiến bộ {subject} +{progress_value:.2f} điểm!")
-            elif -0.5 <= progress_value <= 0.5:
-                st.warning(f"Học sinh {student_id}: Tiến bộ {subject} ổn định ({progress_value:.2f} điểm)")
+    # Upload file with dynamic table structure support
+    st.header("Tải Lên và Phân Tích Dữ Liệu Không Cấu Trúc")
+    uploaded_file = st.file_uploader("Chọn file (CSV, Excel, JSON)", type=["csv", "xlsx", "xls", "json"])
+    if uploaded_file is not None:
+        file_extension = uploaded_file.name.split('.')[-1].lower()
+        try:
+            # Xử lý file theo định dạng với cấu trúc động
+            if file_extension in ['csv']:
+                df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str, on_bad_lines='skip')
+                st.success(f"Đã đọc thành công file CSV với {len(df)} hàng và {len(df.columns)} cột!")
+            elif file_extension in ['xlsx', 'xls']:
+                df = pd.read_excel(uploaded_file, engine='openpyxl' if file_extension == 'xlsx' else 'xlrd', dtype=str)
+                st.success(f"Đã đọc thành công file Excel với {len(df)} hàng và {len(df.columns)} cột!")
+            elif file_extension in ['json']:
+                json_data = json.load(uploaded_file)
+                df = pd.json_normalize(json_data) if isinstance(json_data, list) else pd.DataFrame([json_data])
+                st.success(f"Đã đọc thành công file JSON với {len(df)} hàng và {len(df.columns)} cột!")
             else:
-                st.error(f"Học sinh {student_id}: Giảm {subject} {abs(progress_value):.2f} điểm!")
+                st.error("Định dạng file không được hỗ trợ!")
+                df = None
 
-    # Thống Kê Tổng Quan
-    st.subheader("Thống Kê Tổng Quan")
-    if not df.empty:
-        avg_scores = df[current_subjects].mean()
-        st.write("**Trung Bình Điểm Hiện Tại Theo Môn Học:**")
-        st.write(avg_scores)
+            if df is not None:
+                # Hiển thị dữ liệu đầu
+                st.write("**Dữ liệu đầu tiên (5 hàng):**")
+                st.dataframe(df.head())
 
-        fig_avg = px.bar(x=avg_scores.index, y=avg_scores.values,
-                        title="Trung Bình Điểm Hiện Tại Theo Môn Học",
-                        labels={"x": "Môn Học", "y": "Điểm Trung Bình"},
-                        color_discrete_sequence=px.colors.qualitative.Plotly)
-        st.plotly_chart(fig_avg, use_container_width=True)
+                # Tự động phân tích kiểu dữ liệu
+                st.subheader("Phân Tích Tự Động Cấu Trúc Bảng")
+                # Chuyển đổi kiểu dữ liệu tự động
+                for col in df.columns:
+                    if df[col].str.match(r'^-?\d*\.?\d+$').all():  # Kiểm tra số
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    elif pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True).notna().all():
+                        df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
+                    # Nếu không phải số hoặc ngày, để nguyên là object
+
+                # Hiển thị kiểu dữ liệu sau khi phân tích
+                st.write("**Kiểu dữ liệu tự động phát hiện:**")
+                st.write(df.dtypes)
+
+                # Xử lý dữ liệu thiếu
+                missing_data = df.isnull().sum()
+                if missing_data.sum() > 0:
+                    st.write("**Dữ liệu thiếu (số lượng và %):**")
+                    missing_df = pd.DataFrame({'Missing Count': missing_data, 'Percentage': (missing_data / len(df)) * 100})
+                    st.write(missing_df[missing_df['Missing Count'] > 0])
+                    if st.button("Điền dữ liệu thiếu bằng trung bình (cột số)"):
+                        numeric_cols = df.select_dtypes(include=['number']).columns
+                        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
+                        st.success("Đã điền dữ liệu thiếu!")
+                        st.write("Dữ liệu sau khi điền (5 hàng):")
+                        st.dataframe(df.head())
+                else:
+                    st.success("Không có dữ liệu thiếu!")
+
+                # Thống kê mô tả cho cột số
+                numeric_cols = df.select_dtypes(include=['number']).columns
+                if len(numeric_cols) > 0:
+                    st.write("**Thống kê mô tả (cột số):**")
+                    st.write(df[numeric_cols].describe())
+
+                # Thống kê phân loại cho cột văn bản
+                categorical_cols = df.select_dtypes(include=['object']).columns
+                if len(categorical_cols) > 0:
+                    st.subheader("Thống Kê Phân Loại (Categorical)")
+                    for col in categorical_cols:
+                        if df[col].nunique() < 20:
+                            st.write(f"**Cột '{col}' (số giá trị duy nhất: {df[col].nunique()}):**")
+                            st.write(df[col].value_counts().head(10))
+
+                # Biểu đồ phân bố cho cột số
+                if len(numeric_cols) > 0:
+                    st.subheader("Biểu Đồ Phân Bố")
+                    for col in numeric_cols[:4]:  # Giới hạn 4 cột
+                        fig = px.histogram(df, x=col, title=f"Phân Bố Cột '{col}'", nbins=20)
+                        st.plotly_chart(fig, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Lỗi khi xử lý file: {str(e)}. Vui lòng kiểm tra định dạng hoặc nội dung file.")
     else:
-        st.write("Không có dữ liệu để thống kê.")
-
-    # Biểu Đồ Dự Báo Tiến Bộ
-    st.subheader("Biểu Đồ Dự Báo Tiến Bộ")
-    if not progress_df.empty:
-        forecast_periods = 3
-        forecast_data = {}
-        for subject in [col.replace("_Progress", "") for col in progress_df.columns if col.endswith("_Progress")]:
-            progress_col = f"{subject}_Progress"
-            current_progress = progress_df[progress_col].mean()
-            forecast = [df[subject].iloc[0] + (current_progress * i) for i in range(1, forecast_periods + 1)]
-            forecast_data[f"{subject}_Forecast"] = forecast
-
-        forecast_df = pd.DataFrame(forecast_data, index=[f"Kỳ {i+2}" for i in range(forecast_periods)])
-        st.write("**Dự Báo Điểm Số Các Kỳ Tới (Dựa Trên Tiến Bộ Hiện Tại):**")
-        st.write(forecast_df)
-
-        melted_forecast = pd.melt(forecast_df.reset_index(), id_vars=["index"], var_name="Subject", value_name="Predicted Score")
-        melted_forecast["index"] = melted_forecast["index"].astype(str)
-        fig_forecast = px.line(melted_forecast, x="index", y="Predicted Score", color="Subject",
-                              title="Dự Báo Tiến Bộ Điểm Số",
-                              labels={"index": "Kỳ Học", "Predicted Score": "Điểm Dự Báo"},
-                              color_discrete_sequence=px.colors.qualitative.Plotly)
-        st.plotly_chart(fig_forecast, use_container_width=True)
-    else:
-        st.write("Không có dữ liệu để dự báo.")
-
-    # Run AI button (placeholder)
-    if st.button("Chạy Phân Tích AI"):
-        st.write("Đang xử lý... (Thêm logic AI của bạn ở đây)")
+        st.info("Vui lòng tải lên file CSV, Excel, hoặc JSON để phân tích.")
