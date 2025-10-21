@@ -172,3 +172,34 @@ if st.session_state.authenticated:
     # Run AI button (placeholder)
     if st.button("Chạy Phân Tích AI"):
         st.write("Đang xử lý... (Thêm logic AI của bạn ở đây)")
+
+
+
+
+    # Thêm sau đoạn "Thống Kê Tổng Quan" trong app.py
+st.subheader("Biểu Đồ Dự Báo Tiến Bộ")
+if not progress_df.empty:
+    # Dự đoán điểm dựa trên tiến bộ hiện tại (giả định tăng tuyến tính trong 3 kỳ tiếp theo)
+    forecast_periods = 3
+    forecast_data = {}
+    for subject in [col.replace("_Progress", "") for col in progress_df.columns if col.endswith("_Progress")]:
+        progress_col = f"{subject}_Progress"
+        current_progress = progress_df[progress_col].mean()  # Trung bình tiến bộ
+        forecast = [df[subject].iloc[0] + (current_progress * i) for i in range(1, forecast_periods + 1)]
+        forecast_data[f"{subject}_Forecast"] = forecast
+
+    # Tạo DataFrame dự báo
+    forecast_df = pd.DataFrame(forecast_data, index=[f"Kỳ {i+2}" for i in range(forecast_periods)])
+    st.write("**Dự Báo Điểm Số Các Kỳ Tới (Dựa Trên Tiến Bộ Hiện Tại):**")
+    st.write(forecast_df)
+
+    # Biểu đồ dự báo
+    melted_forecast = pd.melt(forecast_df.reset_index(), id_vars=["index"], var_name="Subject", value_name="Predicted Score")
+    melted_forecast["index"] = melted_forecast["index"].astype(str)
+    fig_forecast = px.line(melted_forecast, x="index", y="Predicted Score", color="Subject",
+                          title="Dự Báo Tiến Bộ Điểm Số",
+                          labels={"index": "Kỳ Học", "Predicted Score": "Điểm Dự Báo"},
+                          color_discrete_sequence=px.colors.qualitative.Plotly)
+    st.plotly_chart(fig_forecast, use_container_width=True)
+else:
+    st.write("Không có dữ liệu để dự báo.")
