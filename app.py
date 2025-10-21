@@ -94,7 +94,6 @@ if st.session_state.authenticated:
     else:
         st.write("**Danh sách dữ liệu trong kho:**")
         selected_dataset = st.selectbox("Chọn tập dữ liệu để phân tích", list(st.session_state.data_store.keys()))
-        df = st.session_state.data_store[selected_dataset]
 
     # Upload new file to data store
     st.subheader("Tải Lên Dữ Liệu Mới")
@@ -126,7 +125,7 @@ if st.session_state.authenticated:
             st.error(f"Lỗi khi xử lý file: {str(e)}. Vui lòng kiểm tra định dạng hoặc nội dung file.")
 
     # Analysis section
-    if st.session_state.data_store and selected_dataset:
+    if st.session_state.data_store and selected_dataset:  # Chỉ chạy khi có dữ liệu và selected_dataset được định nghĩa
         df = st.session_state.data_store[selected_dataset]
 
         # Hiển thị dữ liệu đầu với styling
@@ -200,7 +199,7 @@ if st.session_state.authenticated:
         }
         </style>
         <div class="footer">
-            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com | Powered by xAI
+            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com 
         </div>
         """,
         unsafe_allow_html=True
