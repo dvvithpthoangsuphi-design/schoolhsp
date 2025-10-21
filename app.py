@@ -5,6 +5,8 @@ import yaml
 import json
 import plotly.express as px
 from io import StringIO, BytesIO
+from sklearn.linear_model import LinearRegression
+import numpy as np
 
 # Load config from file or environment variable
 config_path = 'auth_config.yaml'
@@ -22,9 +24,9 @@ else:
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'data_store' not in st.session_state:
-    st.session_state.data_store = {}  # Kho dữ liệu lưu các DataFrame
+    st.session_state.data_store = {}
 if 'selected_dataset' not in st.session_state:
-    st.session_state.selected_dataset = None  # Khởi tạo selected_dataset
+    st.session_state.selected_dataset = None
 
 # Main area login (only show if not authenticated)
 if not st.session_state.authenticated and config and 'credentials' in config and 'usernames' in config['credentials']:
@@ -119,9 +121,9 @@ if st.session_state.authenticated:
                 df = None
 
             if df is not None:
-                st.session_state.data_store[file_name] = df  # Lưu vào kho dữ liệu
+                st.session_state.data_store[file_name] = df
                 st.success(f"Đã thêm '{file_name}' vào kho dữ liệu!")
-                st.session_state.selected_dataset = file_name  # Cập nhật selected_dataset ngay sau khi thêm file
+                st.session_state.selected_dataset = file_name
         except ValueError as ve:
             st.error(f"Lỗi định dạng file Excel: {str(ve)}. Vui lòng kiểm tra hoặc convert sang .xlsx.")
         except Exception as e:
@@ -149,7 +151,6 @@ if st.session_state.authenticated:
                 elif pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True).notna().all():
                     df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
                 else:
-                    # Nếu không phải số hoặc ngày, giữ nguyên và kiểm tra giá trị không hợp lệ
                     df[col] = df[col].astype(str)
                     if df[col].str.contains(r'[^a-zA-Z0-9\s]', na=False).any():
                         st.warning(f"Cột '{col}' chứa ký tự đặc biệt hoặc giá trị không hợp lệ, đã chuyển thành text.")
@@ -161,7 +162,7 @@ if st.session_state.authenticated:
         st.write("**Kiểu dữ liệu tự động phát hiện:**")
         st.dataframe(pd.DataFrame({'Column': df.columns, 'Data Type': df.dtypes}), use_container_width=True)
 
-        # Xử lý dữ liệu thiếu và không hợp lệ
+        # Xử lý dữ liệu thiếu
         missing_data = df.isnull().sum()
         if missing_data.sum() > 0:
             st.write("**Dữ liệu thiếu hoặc không hợp lệ (số lượng và %):**")
@@ -170,7 +171,7 @@ if st.session_state.authenticated:
             if st.button("Điền dữ liệu thiếu bằng trung bình (cột số)"):
                 if numeric_cols:
                     df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
-                    st.session_state.data_store[st.session_state.selected_dataset] = df  # Cập nhật kho dữ liệu
+                    st.session_state.data_store[st.session_state.selected_dataset] = df
                     st.success("Đã điền dữ liệu thiếu!")
                     st.dataframe(df.head(rows_to_show), use_container_width=True, hide_index=True)
                 else:
@@ -178,14 +179,14 @@ if st.session_state.authenticated:
         else:
             st.success("Không có dữ liệu thiếu hoặc không hợp lệ!")
 
-        # Thống kê mô tả cho tất cả cột số
+        # Thống kê mô tả
         if numeric_cols:
             st.write("**Thống kê mô tả (tất cả cột số):**")
             st.dataframe(df[numeric_cols].describe(), use_container_width=True)
         else:
             st.warning("Không tìm thấy cột số để thống kê mô tả!")
 
-        # Thống kê phân loại cho cột văn bản
+        # Thống kê phân loại
         categorical_cols = df.select_dtypes(include=['object']).columns
         if len(categorical_cols) > 0:
             st.subheader("Thống Kê Phân Loại (Categorical)")
@@ -193,16 +194,16 @@ if st.session_state.authenticated:
                 st.write(f"**Cột '{col}' (số giá trị duy nhất: {df[col].nunique()}):**")
                 st.dataframe(pd.DataFrame({'Value': df[col].value_counts().index, 'Count': df[col].value_counts().values}), use_container_width=True)
 
-        # Biểu đồ phân bố cho tất cả cột số
+        # Biểu đồ phân bố
         if numeric_cols:
             st.subheader("Biểu Đồ Phân Bố")
-            for col in numeric_cols:  # Phân tích tất cả cột số
+            for col in numeric_cols:
                 fig = px.histogram(df, x=col, title=f"Phân Bố Cột '{col}'", nbins=20, color_discrete_sequence=['#3498db'])
                 st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("Không tìm thấy cột số để vẽ biểu đồ!")
 
-        # Phân tích tương quan (nâng cao)
+        # Phân tích tương quan
         if len(numeric_cols) > 1:
             st.subheader("Phân Tích Tương Quan Giữa Các Cột Điểm")
             correlation_matrix = df[numeric_cols].corr()
@@ -211,6 +212,25 @@ if st.session_state.authenticated:
             st.plotly_chart(fig, use_container_width=True)
         elif numeric_cols:
             st.warning("Chỉ có một cột số, không thể vẽ ma trận tương quan!")
+
+        # Dự đoán và cảnh báo
+        if numeric_cols and len(df) > 1:
+            st.subheader("Dự Đoán và Cảnh Báo Tình Hình Học Tập")
+            selected_col = st.selectbox("Chọn cột điểm để dự đoán", numeric_cols)
+            X = np.arange(len(df)).reshape(-1, 1)  # Sử dụng chỉ số hàng làm biến độc lập
+            y = df[selected_col].values.reshape(-1, 1)
+            model = LinearRegression()
+            model.fit(X, y)
+            next_index = len(df)
+            predicted_score = model.predict([[next_index]])[0][0]
+            st.write(f"Dự đoán điểm {selected_col} cho kỳ tiếp theo: {predicted_score:.2f}")
+
+            # Cảnh báo
+            threshold = 5.0  # Ngưỡng điểm cảnh báo
+            if df[selected_col].min() < threshold or predicted_score < threshold:
+                st.warning(f"Cảnh báo: Điểm {selected_col} có giá trị thấp nhất {df[selected_col].min():.2f} hoặc dự đoán {predicted_score:.2f} dưới {threshold}. Cần hỗ trợ học sinh!")
+            elif df[selected_col].mean() < 6.5:
+                st.warning(f"Cảnh báo: Điểm trung bình {selected_col} là {df[selected_col].mean():.2f}, cần chú ý cải thiện!")
 
     # Footer
     st.markdown(
