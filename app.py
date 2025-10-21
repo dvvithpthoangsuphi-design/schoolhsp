@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import yaml
 import json
+import plotly.express as px
 from io import StringIO, BytesIO
 
 # Load config from file or environment variable
@@ -20,6 +21,8 @@ else:
 # Initialize session state
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+if 'data_store' not in st.session_state:
+    st.session_state.data_store = {}  # Kho dữ liệu lưu các DataFrame
 
 # Main area login (only show if not authenticated)
 if not st.session_state.authenticated and config and 'credentials' in config and 'usernames' in config['credentials']:
@@ -30,7 +33,7 @@ if not st.session_state.authenticated and config and 'credentials' in config and
         if username in config['credentials']['usernames'] and config['credentials']['usernames'][username]['password'] == password:
             st.session_state.authenticated = True
             st.success("Đăng nhập thành công!")
-            st.rerun()  # Thay st.experimental_rerun
+            st.rerun()
         else:
             st.error("Tên người dùng hoặc mật khẩu không đúng!")
 elif not config:
@@ -47,7 +50,7 @@ if not st.session_state.authenticated and config and 'credentials' in config and
         if username in config['credentials']['usernames'] and config['credentials']['usernames'][username]['password'] == password:
             st.session_state.authenticated = True
             st.sidebar.success(f"Welcome, {username}!")
-            st.rerun()  # Thay st.experimental_rerun
+            st.rerun()
         else:
             st.sidebar.error("Invalid username or password")
 elif not config:
@@ -61,19 +64,20 @@ if st.session_state.authenticated:
 if st.session_state.authenticated:
     st.title("AI Dự Báo Điểm Học Sinh")
 
-    # Banner
+    # Banner with enhanced styling
     st.markdown(
         """
         <style>
         .banner {
-            background-color: #2c3e50;
+            background: linear-gradient(90deg, #2c3e50, #3498db);
             color: white;
             padding: 20px;
             text-align: center;
-            font-size: 24px;
+            font-size: 28px;
             font-weight: bold;
-            border-radius: 5px;
+            border-radius: 10px;
             margin-bottom: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }
         </style>
         <div class="banner">
@@ -83,13 +87,22 @@ if st.session_state.authenticated:
         unsafe_allow_html=True
     )
 
-    # Upload file with dynamic table structure support
-    st.header("Tải Lên và Phân Tích Dữ Liệu Không Cấu Trúc")
-    uploaded_file = st.file_uploader("Chọn file (CSV, Excel, JSON)", type=["csv", "xlsx", "xls", "json"])
+    # Data Store Management
+    st.header("Quản Lý Kho Dữ Liệu")
+    if not st.session_state.data_store:
+        st.warning("Kho dữ liệu trống. Vui lòng tải file để bắt đầu.")
+    else:
+        st.write("**Danh sách dữ liệu trong kho:**")
+        selected_dataset = st.selectbox("Chọn tập dữ liệu để phân tích", list(st.session_state.data_store.keys()))
+        df = st.session_state.data_store[selected_dataset]
+
+    # Upload new file to data store
+    st.subheader("Tải Lên Dữ Liệu Mới")
+    uploaded_file = st.file_uploader("Chọn file (CSV, Excel, JSON)", type=["csv", "xlsx", "xls", "json"], help="Kéo và thả file lên đây (tối đa 200MB)")
     if uploaded_file is not None:
-        file_extension = uploaded_file.name.split('.')[-1].lower()
+        file_name = uploaded_file.name
+        file_extension = file_name.split('.')[-1].lower()
         try:
-            # Xử lý file theo định dạng với cấu trúc động
             if file_extension in ['csv']:
                 df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str, on_bad_lines='skip')
                 st.success(f"Đã đọc thành công file CSV với {len(df)} hàng và {len(df.columns)} cột!")
@@ -105,85 +118,55 @@ if st.session_state.authenticated:
                 df = None
 
             if df is not None:
-                # Hiển thị dữ liệu đầu
-                st.write("**Dữ liệu đầu tiên (5 hàng):**")
-                st.dataframe(df.head())
-
-                # Tự động phân tích kiểu dữ liệu
-                st.subheader("Phân Tích Tự Động Cấu Trúc Bảng")
-                # Chuyển đổi kiểu dữ liệu tự động
-                for col in df.columns:
-                    if df[col].str.match(r'^-?\d*\.?\d+$').all():  # Kiểm tra số
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
-                    elif pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True).notna().all():
-                        df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
-                    # Nếu không phải số hoặc ngày, để nguyên là object
-
-                # Hiển thị kiểu dữ liệu sau khi phân tích
-                st.write("**Kiểu dữ liệu tự động phát hiện:**")
-                st.write(df.dtypes)
-
-                # Xử lý dữ liệu thiếu
-                missing_data = df.isnull().sum()
-                if missing_data.sum() > 0:
-                    st.write("**Dữ liệu thiếu (số lượng và %):**")
-                    missing_df = pd.DataFrame({'Missing Count': missing_data, 'Percentage': (missing_data / len(df)) * 100})
-                    st.write(missing_df[missing_df['Missing Count'] > 0])
-                    if st.button("Điền dữ liệu thiếu bằng trung bình (cột số)"):
-                        numeric_cols = df.select_dtypes(include=['number']).columns
-                        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
-                        st.success("Đã điền dữ liệu thiếu!")
-                        st.write("Dữ liệu sau khi điền (5 hàng):")
-                        st.dataframe(df.head())
-                else:
-                    st.success("Không có dữ liệu thiếu!")
-
-                # Thống kê mô tả cho cột số
-                numeric_cols = df.select_dtypes(include=['number']).columns
-                if len(numeric_cols) > 0:
-                    st.write("**Thống kê mô tả (cột số):**")
-                    st.write(df[numeric_cols].describe())
-
-                # Thống kê phân loại cho cột văn bản
-                categorical_cols = df.select_dtypes(include=['object']).columns
-                if len(categorical_cols) > 0:
-                    st.subheader("Thống Kê Phân Loại (Categorical)")
-                    for col in categorical_cols:
-                        if df[col].nunique() < 20:
-                            st.write(f"**Cột '{col}' (số giá trị duy nhất: {df[col].nunique()}):**")
-                            st.write(df[col].value_counts().head(10))
-
-                # Biểu đồ phân bố cho cột số
-                if len(numeric_cols) > 0:
-                    st.subheader("Biểu Đồ Phân Bố")
-                    for col in numeric_cols[:4]:  # Giới hạn 4 cột
-                        fig = px.histogram(df, x=col, title=f"Phân Bố Cột '{col}'", nbins=20)
-                        st.plotly_chart(fig, use_container_width=True)
-
+                st.session_state.data_store[file_name] = df  # Lưu vào kho dữ liệu
+                st.success(f"Đã thêm '{file_name}' vào kho dữ liệu!")
+        except ValueError as ve:
+            st.error(f"Lỗi định dạng file Excel: {str(ve)}. Vui lòng kiểm tra hoặc convert sang .xlsx.")
         except Exception as e:
             st.error(f"Lỗi khi xử lý file: {str(e)}. Vui lòng kiểm tra định dạng hoặc nội dung file.")
-    else:
-        st.info("Vui lòng tải lên file CSV, Excel, hoặc JSON để phân tích.")
 
-    # Footer
-    st.markdown(
-        """
-        <style>
-        .footer {
-            background-color: #2c3e50;
-            color: white;
-            padding: 10px;
-            text-align: center;
-            font-size: 14px;
-            position: fixed;
-            bottom: 0;
-            width: 100%;
-            border-radius: 5px 5px 0 0;
-        }
-        </style>
-        <div class="footer">
-            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com 
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    # Analysis section
+    if st.session_state.data_store and selected_dataset:
+        df = st.session_state.data_store[selected_dataset]
+
+        # Hiển thị dữ liệu đầu với styling
+        st.subheader("Dữ liệu đầu tiên (5 hàng)")
+        st.dataframe(df.head(), use_container_width=True, hide_index=True)
+
+        # Tự động phân tích kiểu dữ liệu
+        st.subheader("Phân Tích Tự Động Cấu Trúc Bảng")
+        for col in df.columns:
+            if df[col].str.match(r'^-?\d*\.?\d+$').all():  # Kiểm tra số
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            elif pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True).notna().all():
+                df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
+
+        # Hiển thị kiểu dữ liệu
+        st.write("**Kiểu dữ liệu tự động phát hiện:**")
+        st.dataframe(pd.DataFrame({'Column': df.columns, 'Data Type': df.dtypes}), use_container_width=True)
+
+        # Xử lý dữ liệu thiếu
+        missing_data = df.isnull().sum()
+        if missing_data.sum() > 0:
+            st.write("**Dữ liệu thiếu (số lượng và %):**")
+            missing_df = pd.DataFrame({'Missing Count': missing_data, 'Percentage': (missing_data / len(df)) * 100})
+            st.dataframe(missing_df[missing_df['Missing Count'] > 0], use_container_width=True)
+            if st.button("Điền dữ liệu thiếu bằng trung bình (cột số)"):
+                numeric_cols = df.select_dtypes(include=['number']).columns
+                df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
+                st.session_state.data_store[selected_dataset] = df  # Cập nhật kho dữ liệu
+                st.success("Đã điền dữ liệu thiếu!")
+                st.dataframe(df.head(), use_container_width=True, hide_index=True)
+        else:
+            st.success("Không có dữ liệu thiếu!")
+
+        # Thống kê mô tả cho cột số
+        numeric_cols = df.select_dtypes(include=['number']).columns
+        if len(numeric_cols) > 0:
+            st.write("**Thống kê mô tả (cột số):**")
+            st.dataframe(df[numeric_cols].describe(), use_container_width=True)
+
+        # Thống kê phân loại cho cột văn bản
+        categorical_cols = df.select_dtypes(include=['object']).columns
+        if len(categorical_cols) > 0:
+            st.subheader("Thống Kê Phân Lo
