@@ -125,20 +125,24 @@ if st.session_state.authenticated:
             st.error(f"Lỗi khi xử lý file: {str(e)}. Vui lòng kiểm tra định dạng hoặc nội dung file.")
 
     # Analysis section
-    if st.session_state.data_store and selected_dataset:  # Chỉ chạy khi có dữ liệu và selected_dataset được định nghĩa
+    if st.session_state.data_store and selected_dataset:
         df = st.session_state.data_store[selected_dataset]
 
-        # Hiển thị dữ liệu đầu với styling
-        st.subheader("Dữ liệu đầu tiên (5 hàng)")
-        st.dataframe(df.head(), use_container_width=True, hide_index=True)
+        # Hiển thị dữ liệu đầy đủ với tùy chọn
+        st.subheader("Dữ liệu (tùy chọn hiển thị)")
+        rows_to_show = st.slider("Số hàng để hiển thị", min_value=5, max_value=len(df), value=5)
+        st.dataframe(df.head(rows_to_show), use_container_width=True, hide_index=True)
 
         # Tự động phân tích kiểu dữ liệu
         st.subheader("Phân Tích Tự Động Cấu Trúc Bảng")
         for col in df.columns:
-            if df[col].str.match(r'^-?\d*\.?\d+$').all():  # Kiểm tra số
+            # Kiểm tra và chuyển đổi kiểu dữ liệu chi tiết hơn
+            if df[col].str.match(r'^-?\d*\.?\d+$').all() or df[col].str.replace('.', '', regex=False).str.isnumeric().all():
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             elif pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True).notna().all():
                 df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
+            else:
+                df[col] = df[col].astype(str)  # Giữ nguyên làm text nếu không phải số hoặc ngày
 
         # Hiển thị kiểu dữ liệu
         st.write("**Kiểu dữ liệu tự động phát hiện:**")
@@ -155,14 +159,14 @@ if st.session_state.authenticated:
                 df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
                 st.session_state.data_store[selected_dataset] = df  # Cập nhật kho dữ liệu
                 st.success("Đã điền dữ liệu thiếu!")
-                st.dataframe(df.head(), use_container_width=True, hide_index=True)
+                st.dataframe(df.head(rows_to_show), use_container_width=True, hide_index=True)
         else:
             st.success("Không có dữ liệu thiếu!")
 
-        # Thống kê mô tả cho cột số
+        # Thống kê mô tả cho tất cả cột số
         numeric_cols = df.select_dtypes(include=['number']).columns
         if len(numeric_cols) > 0:
-            st.write("**Thống kê mô tả (cột số):**")
+            st.write("**Thống kê mô tả (tất cả cột số):**")
             st.dataframe(df[numeric_cols].describe(), use_container_width=True)
 
         # Thống kê phân loại cho cột văn bản
@@ -170,14 +174,13 @@ if st.session_state.authenticated:
         if len(categorical_cols) > 0:
             st.subheader("Thống Kê Phân Loại (Categorical)")
             for col in categorical_cols:
-                if df[col].nunique() < 20:
-                    st.write(f"**Cột '{col}' (số giá trị duy nhất: {df[col].nunique()}):**")
-                    st.dataframe(pd.DataFrame({'Value': df[col].value_counts().index[:10], 'Count': df[col].value_counts().values[:10]}), use_container_width=True)
+                st.write(f"**Cột '{col}' (số giá trị duy nhất: {df[col].nunique()}):**")
+                st.dataframe(pd.DataFrame({'Value': df[col].value_counts().index, 'Count': df[col].value_counts().values}), use_container_width=True)
 
-        # Biểu đồ phân bố cho cột số
+        # Biểu đồ phân bố cho tất cả cột số
         if len(numeric_cols) > 0:
             st.subheader("Biểu Đồ Phân Bố")
-            for col in numeric_cols[:4]:  # Giới hạn 4 cột
+            for col in numeric_cols:  # Phân tích tất cả cột số
                 fig = px.histogram(df, x=col, title=f"Phân Bố Cột '{col}'", nbins=20, color_discrete_sequence=['#3498db'])
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -199,7 +202,7 @@ if st.session_state.authenticated:
         }
         </style>
         <div class="footer">
-            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com 
+            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com | Powered by xAI
         </div>
         """,
         unsafe_allow_html=True
