@@ -128,7 +128,7 @@ if st.session_state.authenticated:
             st.error(f"Lỗi khi xử lý file: {str(e)}. Vui lòng kiểm tra định dạng hoặc nội dung file.")
 
     # Analysis section
-    if st.session_state.data_store and st.session_state.selected_dataset:  # Sử dụng session_state.selected_dataset
+    if st.session_state.data_store and st.session_state.selected_dataset:
         df = st.session_state.data_store[st.session_state.selected_dataset]
 
         # Hiển thị dữ liệu đầy đủ với tùy chọn
@@ -138,11 +138,13 @@ if st.session_state.authenticated:
 
         # Tự động phân tích kiểu dữ liệu với kiểm tra chi tiết
         st.subheader("Phân Tích Tự Động Cấu Trúc Bảng")
+        numeric_cols = []
         for col in df.columns:
             try:
                 # Kiểm tra số (bao gồm cả số thập phân và số nguyên)
                 if df[col].str.match(r'^-?\d*\.?\d+$').all() or df[col].str.replace('.', '', regex=False).str.isnumeric().all():
                     df[col] = pd.to_numeric(df[col], errors='coerce')
+                    numeric_cols.append(col)
                 # Kiểm tra ngày tháng
                 elif pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True).notna().all():
                     df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
@@ -166,19 +168,22 @@ if st.session_state.authenticated:
             missing_df = pd.DataFrame({'Missing Count': missing_data, 'Percentage': (missing_data / len(df)) * 100})
             st.dataframe(missing_df[missing_df['Missing Count'] > 0], use_container_width=True)
             if st.button("Điền dữ liệu thiếu bằng trung bình (cột số)"):
-                numeric_cols = df.select_dtypes(include=['number']).columns
-                df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
-                st.session_state.data_store[st.session_state.selected_dataset] = df  # Cập nhật kho dữ liệu
-                st.success("Đã điền dữ liệu thiếu!")
-                st.dataframe(df.head(rows_to_show), use_container_width=True, hide_index=True)
+                if numeric_cols:
+                    df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
+                    st.session_state.data_store[st.session_state.selected_dataset] = df  # Cập nhật kho dữ liệu
+                    st.success("Đã điền dữ liệu thiếu!")
+                    st.dataframe(df.head(rows_to_show), use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Không có cột số để điền dữ liệu thiếu!")
         else:
             st.success("Không có dữ liệu thiếu hoặc không hợp lệ!")
 
         # Thống kê mô tả cho tất cả cột số
-        numeric_cols = df.select_dtypes(include=['number']).columns
-        if len(numeric_cols) > 0:
+        if numeric_cols:
             st.write("**Thống kê mô tả (tất cả cột số):**")
             st.dataframe(df[numeric_cols].describe(), use_container_width=True)
+        else:
+            st.warning("Không tìm thấy cột số để thống kê mô tả!")
 
         # Thống kê phân loại cho cột văn bản
         categorical_cols = df.select_dtypes(include=['object']).columns
@@ -189,11 +194,13 @@ if st.session_state.authenticated:
                 st.dataframe(pd.DataFrame({'Value': df[col].value_counts().index, 'Count': df[col].value_counts().values}), use_container_width=True)
 
         # Biểu đồ phân bố cho tất cả cột số
-        if len(numeric_cols) > 0:
+        if numeric_cols:
             st.subheader("Biểu Đồ Phân Bố")
             for col in numeric_cols:  # Phân tích tất cả cột số
                 fig = px.histogram(df, x=col, title=f"Phân Bố Cột '{col}'", nbins=20, color_discrete_sequence=['#3498db'])
                 st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Không tìm thấy cột số để vẽ biểu đồ!")
 
         # Phân tích tương quan (nâng cao)
         if len(numeric_cols) > 1:
@@ -202,6 +209,8 @@ if st.session_state.authenticated:
             fig = px.imshow(correlation_matrix, text_auto=True, aspect="auto", color_continuous_scale='RdBu')
             fig.update_layout(title="Ma trận Tương Quan")
             st.plotly_chart(fig, use_container_width=True)
+        elif numeric_cols:
+            st.warning("Chỉ có một cột số, không thể vẽ ma trận tương quan!")
 
     # Footer
     st.markdown(
@@ -221,7 +230,7 @@ if st.session_state.authenticated:
         }
         </style>
         <div class="footer">
-            © 2025 AI Dự Báo Điểm Học Sinh 
+            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com | Powered by xAI
         </div>
         """,
         unsafe_allow_html=True
