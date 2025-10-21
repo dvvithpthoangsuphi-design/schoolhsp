@@ -169,4 +169,39 @@ if st.session_state.authenticated:
         # Thống kê phân loại cho cột văn bản
         categorical_cols = df.select_dtypes(include=['object']).columns
         if len(categorical_cols) > 0:
-            st.subheader("Thống Kê Phân Lo
+            st.subheader("Thống Kê Phân Loại (Categorical)")
+            for col in categorical_cols:
+                if df[col].nunique() < 20:
+                    st.write(f"**Cột '{col}' (số giá trị duy nhất: {df[col].nunique()}):**")
+                    st.dataframe(pd.DataFrame({'Value': df[col].value_counts().index[:10], 'Count': df[col].value_counts().values[:10]}), use_container_width=True)
+
+        # Biểu đồ phân bố cho cột số
+        if len(numeric_cols) > 0:
+            st.subheader("Biểu Đồ Phân Bố")
+            for col in numeric_cols[:4]:  # Giới hạn 4 cột
+                fig = px.histogram(df, x=col, title=f"Phân Bố Cột '{col}'", nbins=20, color_discrete_sequence=['#3498db'])
+                st.plotly_chart(fig, use_container_width=True)
+
+    # Footer
+    st.markdown(
+        """
+        <style>
+        .footer {
+            background: linear-gradient(90deg, #3498db, #2c3e50);
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-size: 14px;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            border-radius: 5px 5px 0 0;
+            box-shadow: 0 -4px 8px rgba(0, 0, 0, 0.2);
+        }
+        </style>
+        <div class="footer">
+            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com | Powered by xAI
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
