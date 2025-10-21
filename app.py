@@ -23,6 +23,8 @@ if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'data_store' not in st.session_state:
     st.session_state.data_store = {}  # Kho dữ liệu lưu các DataFrame
+if 'selected_dataset' not in st.session_state:
+    st.session_state.selected_dataset = None  # Khởi tạo selected_dataset
 
 # Main area login (only show if not authenticated)
 if not st.session_state.authenticated and config and 'credentials' in config and 'usernames' in config['credentials']:
@@ -93,7 +95,7 @@ if st.session_state.authenticated:
         st.warning("Kho dữ liệu trống. Vui lòng tải file để bắt đầu.")
     else:
         st.write("**Danh sách dữ liệu trong kho:**")
-        selected_dataset = st.selectbox("Chọn tập dữ liệu để phân tích", list(st.session_state.data_store.keys()))
+        st.session_state.selected_dataset = st.selectbox("Chọn tập dữ liệu để phân tích", list(st.session_state.data_store.keys()), index=0 if st.session_state.selected_dataset in st.session_state.data_store else 0)
 
     # Upload new file to data store
     st.subheader("Tải Lên Dữ Liệu Mới")
@@ -119,49 +121,58 @@ if st.session_state.authenticated:
             if df is not None:
                 st.session_state.data_store[file_name] = df  # Lưu vào kho dữ liệu
                 st.success(f"Đã thêm '{file_name}' vào kho dữ liệu!")
+                st.session_state.selected_dataset = file_name  # Cập nhật selected_dataset ngay sau khi thêm file
         except ValueError as ve:
             st.error(f"Lỗi định dạng file Excel: {str(ve)}. Vui lòng kiểm tra hoặc convert sang .xlsx.")
         except Exception as e:
             st.error(f"Lỗi khi xử lý file: {str(e)}. Vui lòng kiểm tra định dạng hoặc nội dung file.")
 
     # Analysis section
-    if st.session_state.data_store and selected_dataset:
-        df = st.session_state.data_store[selected_dataset]
+    if st.session_state.data_store and st.session_state.selected_dataset:  # Sử dụng session_state.selected_dataset
+        df = st.session_state.data_store[st.session_state.selected_dataset]
 
         # Hiển thị dữ liệu đầy đủ với tùy chọn
         st.subheader("Dữ liệu (tùy chọn hiển thị)")
         rows_to_show = st.slider("Số hàng để hiển thị", min_value=5, max_value=len(df), value=5)
         st.dataframe(df.head(rows_to_show), use_container_width=True, hide_index=True)
 
-        # Tự động phân tích kiểu dữ liệu
+        # Tự động phân tích kiểu dữ liệu với kiểm tra chi tiết
         st.subheader("Phân Tích Tự Động Cấu Trúc Bảng")
         for col in df.columns:
-            # Kiểm tra và chuyển đổi kiểu dữ liệu chi tiết hơn
-            if df[col].str.match(r'^-?\d*\.?\d+$').all() or df[col].str.replace('.', '', regex=False).str.isnumeric().all():
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            elif pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True).notna().all():
-                df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
-            else:
-                df[col] = df[col].astype(str)  # Giữ nguyên làm text nếu không phải số hoặc ngày
+            try:
+                # Kiểm tra số (bao gồm cả số thập phân và số nguyên)
+                if df[col].str.match(r'^-?\d*\.?\d+$').all() or df[col].str.replace('.', '', regex=False).str.isnumeric().all():
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                # Kiểm tra ngày tháng
+                elif pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True).notna().all():
+                    df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
+                else:
+                    # Nếu không phải số hoặc ngày, giữ nguyên và kiểm tra giá trị không hợp lệ
+                    df[col] = df[col].astype(str)
+                    if df[col].str.contains(r'[^a-zA-Z0-9\s]', na=False).any():
+                        st.warning(f"Cột '{col}' chứa ký tự đặc biệt hoặc giá trị không hợp lệ, đã chuyển thành text.")
+            except Exception as e:
+                st.warning(f"Không thể xử lý cột '{col}': {str(e)}. Đã chuyển thành text.")
+                df[col] = df[col].astype(str)
 
         # Hiển thị kiểu dữ liệu
         st.write("**Kiểu dữ liệu tự động phát hiện:**")
         st.dataframe(pd.DataFrame({'Column': df.columns, 'Data Type': df.dtypes}), use_container_width=True)
 
-        # Xử lý dữ liệu thiếu
+        # Xử lý dữ liệu thiếu và không hợp lệ
         missing_data = df.isnull().sum()
         if missing_data.sum() > 0:
-            st.write("**Dữ liệu thiếu (số lượng và %):**")
+            st.write("**Dữ liệu thiếu hoặc không hợp lệ (số lượng và %):**")
             missing_df = pd.DataFrame({'Missing Count': missing_data, 'Percentage': (missing_data / len(df)) * 100})
             st.dataframe(missing_df[missing_df['Missing Count'] > 0], use_container_width=True)
             if st.button("Điền dữ liệu thiếu bằng trung bình (cột số)"):
                 numeric_cols = df.select_dtypes(include=['number']).columns
                 df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
-                st.session_state.data_store[selected_dataset] = df  # Cập nhật kho dữ liệu
+                st.session_state.data_store[st.session_state.selected_dataset] = df  # Cập nhật kho dữ liệu
                 st.success("Đã điền dữ liệu thiếu!")
                 st.dataframe(df.head(rows_to_show), use_container_width=True, hide_index=True)
         else:
-            st.success("Không có dữ liệu thiếu!")
+            st.success("Không có dữ liệu thiếu hoặc không hợp lệ!")
 
         # Thống kê mô tả cho tất cả cột số
         numeric_cols = df.select_dtypes(include=['number']).columns
@@ -184,6 +195,14 @@ if st.session_state.authenticated:
                 fig = px.histogram(df, x=col, title=f"Phân Bố Cột '{col}'", nbins=20, color_discrete_sequence=['#3498db'])
                 st.plotly_chart(fig, use_container_width=True)
 
+        # Phân tích tương quan (nâng cao)
+        if len(numeric_cols) > 1:
+            st.subheader("Phân Tích Tương Quan Giữa Các Cột Điểm")
+            correlation_matrix = df[numeric_cols].corr()
+            fig = px.imshow(correlation_matrix, text_auto=True, aspect="auto", color_continuous_scale='RdBu')
+            fig.update_layout(title="Ma trận Tương Quan")
+            st.plotly_chart(fig, use_container_width=True)
+
     # Footer
     st.markdown(
         """
@@ -202,7 +221,7 @@ if st.session_state.authenticated:
         }
         </style>
         <div class="footer">
-            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com | Powered by xAI
+            © 2025 AI Dự Báo Điểm Học Sinh 
         </div>
         """,
         unsafe_allow_html=True
