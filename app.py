@@ -10,7 +10,10 @@ import numpy as np
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-
+import os
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 # Load config from file or environment variable
 config_path = 'auth_config.yaml'
 config = None
@@ -32,10 +35,11 @@ if 'selected_dataset' not in st.session_state:
     st.session_state.selected_dataset = None
 
 # Google Drive setup
-SCOPES = ['https://www.googleapis.com/auth/drive']
-creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+SSCOPES = ['https://www.googleapis.com/auth/drive']
+creds_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+creds = Credentials.from_service_account_info(json.loads(creds_json), scopes=SCOPES)
 drive_service = build('drive', 'v3', credentials=creds)
-FOLDER_ID = 'your_folder_id_here'  # Thay bằng ID thư mục Google Drive
+FOLDER_ID = 'AI_Data_School'  # Thay bằng ID thư mục (ví dụ: 1abc123...)
 
 def upload_to_drive(file, file_name):
     file_metadata = {'name': file_name, 'parents': [FOLDER_ID]}
