@@ -61,6 +61,28 @@ if st.session_state.authenticated:
 if st.session_state.authenticated:
     st.title("AI Dự Báo Điểm Học Sinh")
 
+    # Banner
+    st.markdown(
+        """
+        <style>
+        .banner {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        </style>
+        <div class="banner">
+            Chào mừng đến với Hệ Thống AI Dự Báo Điểm Học Sinh
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     # Upload file with dynamic table structure support
     st.header("Tải Lên và Phân Tích Dữ Liệu Không Cấu Trúc")
     uploaded_file = st.file_uploader("Chọn file (CSV, Excel, JSON)", type=["csv", "xlsx", "xls", "json"])
@@ -142,3 +164,26 @@ if st.session_state.authenticated:
             st.error(f"Lỗi khi xử lý file: {str(e)}. Vui lòng kiểm tra định dạng hoặc nội dung file.")
     else:
         st.info("Vui lòng tải lên file CSV, Excel, hoặc JSON để phân tích.")
+
+    # Footer
+    st.markdown(
+        """
+        <style>
+        .footer {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-size: 14px;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            border-radius: 5px 5px 0 0;
+        }
+        </style>
+        <div class="footer">
+            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com | Powered by xAI
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
