@@ -182,7 +182,7 @@ if st.session_state.authenticated:
         }
         </style>
         <div class="footer">
-            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com | Powered by xAI
+            © 2025 AI Dự Báo Điểm Học Sinh | Liên hệ: support@schoolhsp.com 
         </div>
         """,
         unsafe_allow_html=True
