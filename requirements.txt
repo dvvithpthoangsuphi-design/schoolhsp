@@ -5,7 +5,7 @@ pyyaml==6.0.1
 openpyxl==3.1.5
 xlrd==2.0.1
 scikit-learn==1.5.0
-numpy==1.26.4
+numpy==1.26.4numpy==1.26.4 --only-binary=:all:
 google-auth==2.27.0
 google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
