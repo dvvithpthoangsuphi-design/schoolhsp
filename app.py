@@ -52,7 +52,7 @@ except Exception as e:
     raise RuntimeError(f"Lỗi khi tải thông tin xác thực Google Drive: {str(e)}")
 
 
-FOLDER_ID = 'AI_Data_School'  # Thay bằng ID thư mục (ví dụ: 1abc123...)
+FOLDER_ID = '1K6Z-huJcdphdM42o2NL3kvu6KY7asD_u'  # Thay bằng ID thư mục (ví dụ: 1abc123...)
 
 def upload_to_drive(file, file_name):
     file_metadata = {'name': file_name, 'parents': [FOLDER_ID]}
