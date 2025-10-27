@@ -35,10 +35,23 @@ if 'selected_dataset' not in st.session_state:
     st.session_state.selected_dataset = None
 
 # Google Drive setup
-SSCOPES = ['https://www.googleapis.com/auth/drive']
+SCOPES = ['https://www.googleapis.com/auth/drive']
 creds_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-creds = Credentials.from_service_account_info(json.loads(creds_json), scopes=SCOPES)
-drive_service = build('drive', 'v3', credentials=creds)
+
+if not creds_json:
+    raise RuntimeError(
+        "LỖI: Biến môi trường 'GOOGLE_APPLICATION_CREDENTIALS' chưa được thiết lập!\n"
+        "Vui lòng vào Render Dashboard > Settings > Environment Variables > Thêm key này với nội dung JSON từ file credentials.json"
+    )
+
+try:
+    creds_info = json.loads(creds_json)
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    drive_service = build('drive', 'v3', credentials=creds)
+except Exception as e:
+    raise RuntimeError(f"Lỗi khi tải thông tin xác thực Google Drive: {str(e)}")
+
+
 FOLDER_ID = 'AI_Data_School'  # Thay bằng ID thư mục (ví dụ: 1abc123...)
 
 def upload_to_drive(file, file_name):
