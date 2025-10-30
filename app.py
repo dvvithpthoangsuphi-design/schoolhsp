@@ -1,3 +1,8 @@
+import requests
+from PIL import Image
+from io import BytesIO
+import glob
+import os
 import streamlit as st
 import pandas as pd
 import os
@@ -68,7 +73,90 @@ def download_from_drive(file_id):
     while done is False:
         status, done = downloader.next_chunk()
     fh.seek(0)
-    return pd.read_excel(fh)
+    
+    # Đọc toàn bộ file (không header)
+    df_raw = pd.read_excel(fh, engine='openpyxl', header=None)
+    fh.seek(0)  # Reset để đọc lại
+    
+    # === AI TỰ ĐỘNG TÌM TIÊU ĐỀ ===
+    header_row = None
+    name_col_idx = None
+    class_col_idx = None
+    point_col_idxs = []
+    
+    # Từ khóa nhận diện
+    name_keywords = ["họ tên", "họ và tên", "tên học sinh", "họ sinh"]
+    class_keywords = ["lớp", "class"]
+    point_keywords = ["toán", "văn", "lý", "hóa", "sinh", "sử", "địa", "gdcd", "tin", "anh", "đtb", "trung bình"]
+    
+    for idx, row in df_raw.iterrows():
+        row_lower = [str(cell).strip().lower() if pd.notna(cell) else "" for cell in row]
+        
+        # Tìm dòng có "họ tên" và ít nhất 3 môn
+        if any(kw in " ".join(row_lower) for kw in name_keywords):
+            # Đếm số môn trong dòng
+            point_count = sum(any(pkw in cell for pkw in point_keywords) for cell in row_lower)
+            if point_count >= 3:
+                header_row = idx
+                # Tìm cột họ tên, lớp, điểm
+                for j, cell in enumerate(row_lower):
+                    if any(kw in cell for kw in name_keywords):
+                        name_col_idx = j
+                    elif any(kw in cell for kw in class_keywords):
+                        class_col_idx = j
+                    elif any(pkw in cell for pkw in point_keywords):
+                        point_col_idxs.append(j)
+                break
+    
+    if header_row is None:
+        st.warning("Không tìm thấy dòng tiêu đề học sinh. Dùng file chuẩn.")
+        return pd.read_excel(fh, engine='openpyxl')
+    
+    # === ĐỌC LẠI VỚI TIÊU ĐỀ CHUẨN ===
+    df = pd.read_excel(fh, engine='openpyxl', header=header_row)
+    
+    # === LÀM SẠCH DỮ LIỆU ===
+    df = df.dropna(how='all').dropna(how='all', axis=1).reset_index(drop=True)
+    
+    # Chỉ giữ cột cần thiết
+    cols_to_keep = []
+    new_names = {}
+    
+    for col in df.columns:
+        col_lower = str(col).strip().lower()
+        if any(kw in col_lower for kw in name_keywords):
+            cols_to_keep.append(col)
+            new_names[col] = "Họ tên"
+        elif any(kw in col_lower for kw in class_keywords):
+            cols_to_keep.append(col)
+            new_names[col] = "Lớp"
+        elif any(pkw in col_lower for pkw in point_keywords):
+            cols_to_keep.append(col)
+            # Chuẩn hóa tên môn
+            if "toán" in col_lower: new_names[col] = "Toán"
+            elif "văn" in col_lower: new_names[col] = "Văn"
+            elif "lý" in col_lower: new_names[col] = "Lý"
+            elif "hóa" in col_lower: new_names[col] = "Hóa"
+            elif "sinh" in col_lower: new_names[col] = "Sinh"
+            elif "sử" in col_lower: new_names[col] = "Sử"
+            elif "địa" in col_lower: new_names[col] = "Địa"
+            elif "gdcd" in col_lower: new_names[col] = "GDCD"
+            elif "tin" in col_lower: new_names[col] = "Tin"
+            elif "anh" in col_lower: new_names[col] = "Anh"
+            elif "trung bình" in col_lower or "đtb" in col_lower: new_names[col] = "ĐTB"
+            else: new_names[col] = col
+    
+    df = df[cols_to_keep].rename(columns=new_names)
+    
+    # Xóa dòng không có tên học sinh
+    df = df[df['Họ tên'].notna() & (df['Họ tên'].str.strip() != "")]
+    
+    # Chuyển điểm thành số
+    point_cols = [col for col in df.columns if col not in ['Họ tên', 'Lớp']]
+    for col in point_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    return df.reset_index(drop=True)
 
 # Main area login
 if not st.session_state.authenticated and config and 'credentials' in config and 'usernames' in config['credentials']:
@@ -188,99 +276,194 @@ if st.session_state.authenticated:
 
     # Analysis section
     if st.session_state.data_store and st.session_state.selected_dataset:
-        df = st.session_state.data_store[st.session_state.selected_dataset]
+    df = st.session_state.data_store[st.session_state.selected_dataset]
 
-        # Hiển thị dữ liệu
-        st.subheader("Dữ liệu (tùy chọn hiển thị)")
-        rows_to_show = st.slider("Số hàng để hiển thị", min_value=5, max_value=len(df), value=5)
-        st.dataframe(df.head(rows_to_show), use_container_width=True, hide_index=True)
+    # === HIỂN THỊ BẢNG HỌC SINH SIÊU THÍCH NGHI ===
+    st.subheader("Bảng Điểm Học Sinh")
+    if 'Họ tên' in df.columns:
+        point_cols = [col for col in df.columns if col not in ['Họ tên', 'Lớp']]
+        display_cols = ['Họ tên', 'Lớp'] + point_cols
+        display_df = df[display_cols].copy()
+        display_df = display_df.dropna(subset=['Họ tên']).reset_index(drop=True)
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        # Phân tích kiểu dữ liệu
-        st.subheader("Phân Tích Tự Động Cấu Trúc Bảng")
-        numeric_cols = []
-        for col in df.columns:
-            try:
-                if df[col].str.match(r'^-?\d*\.?\d+$').all() or df[col].str.replace('.', '', regex=False).str.isnumeric().all():
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-                    numeric_cols.append(col)
-                elif pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True).notna().all():
-                    df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
+        # === TÍNH ĐIỂM TRUNG BÌNH ===
+        if point_cols:
+            df['ĐTB'] = df[point_cols].mean(axis=1).round(2)
+            df = df.sort_values('ĐTB', ascending=False).reset_index(drop=True)
+
+            # === TOP 3 HỌC SINH ===
+            st.subheader("Top 3 Học Sinh Xuất Sắc")
+            top3 = df.head(3)[['Họ tên', 'Lớp', 'ĐTB'] + point_cols]
+            st.dataframe(top3, use_container_width=True, hide_index=True)
+
+            # Biểu đồ Top 3
+            fig_top = px.bar(
+                top3.melt(id_vars=['Họ tên'], value_vars=point_cols + ['ĐTB'], var_name='Môn', value_name='Điểm'),
+                x='Họ tên', y='Điểm', color='Môn', barmode='group',
+                title="So Sánh Điểm Top 3 Học Sinh",
+                color_discrete_sequence=px.colors.qualitative.Bold
+            )
+            fig_top.update_layout(height=500)
+            st.plotly_chart(fig_top, use_container_width=True)
+
+            # === PHÂN BỐ ĐIỂM TRUNG BÌNH ===
+            st.subheader("Phân Bố Điểm Trung Bình Toàn Lớp")
+            fig_hist = px.histogram(df, x='ĐTB', nbins=15, title="Phân Bố ĐTB", color_discrete_sequence=['#27ae60'])
+            fig_hist.add_vline(x=df['ĐTB'].mean(), line_dash="dash", line_color="red", annotation_text=f"TB: {df['ĐTB'].mean():.2f}")
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+            # === DỰ BÁO AI CHO TỪNG MÔN ===
+            st.subheader("Dự Báo Điểm Kỳ Tới (AI)")
+            predictions = {}
+            for col in point_cols:
+                if df[col].notna().sum() >= 2:
+                    X = np.arange(len(df)).reshape(-1, 1)
+                    y = df[col].dropna().values
+                    model = LinearRegression().fit(X[:len(y)], y.reshape(-1, 1))
+                    pred = model.predict([[len(df)]])[0][0]
+                    predictions[col] = round(float(pred), 2)
                 else:
-                    df[col] = df[col].astype(str)
-                    if df[col].str.contains(r'[^a-zA-Z0-9\s]', na=False).any():
-                        st.warning(f"Cột '{col}' chứa ký tự đặc biệt, đã chuyển thành text.")
-            except Exception as e:
-                st.warning(f"Không thể xử lý cột '{col}': {str(e)}. Đã chuyển thành text.")
-                df[col] = df[col].astype(str)
+                    predictions[col] = df[col].mean().round(2) if df[col].notna().any() else 0
 
-        st.write("**Kiểu dữ liệu tự động phát hiện:**")
-        st.dataframe(pd.DataFrame({'Column': df.columns, 'Data Type': df.dtypes}), use_container_width=True)
+            pred_df = pd.DataFrame(list(predictions.items()), columns=['Môn', 'Dự báo kỳ tới'])
+            pred_df['Hiện tại'] = [df[col].mean().round(2) for col in point_cols]
+            pred_df['Thay đổi'] = (pred_df['Dự báo kỳ tới'] - pred_df['Hiện tại']).round(2)
+            pred_df = pred_df[['Môn', 'Hiện tại', 'Dự báo kỳ tới', 'Thay đổi']]
 
-        # Xử lý dữ liệu thiếu
-        missing_data = df.isnull().sum()
-        if missing_data.sum() > 0:
-            st.write("**Dữ liệu thiếu (số lượng và %):**")
-            missing_df = pd.DataFrame({'Missing Count': missing_data, 'Percentage': (missing_data / len(df)) * 100})
-            st.dataframe(missing_df[missing_df['Missing Count'] > 0], use_container_width=True)
-            if st.button("Điền dữ liệu thiếu bằng trung bình (cột số)"):
-                if numeric_cols:
-                    df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
-                    st.session_state.data_store[st.session_state.selected_dataset] = df
-                    st.success("Đã điền dữ liệu thiếu!")
-                    st.dataframe(df.head(rows_to_show), use_container_width=True, hide_index=True)
-                else:
-                    st.warning("Không có cột số để điền dữ liệu thiếu!")
-        else:
-            st.success("Không có dữ liệu thiếu!")
+            st.dataframe(pred_df, use_container_width=True, hide_index=True)
 
-        # Thống kê mô tả
-        if numeric_cols:
-            st.write("**Thống kê mô tả (tất cả cột số):**")
-            st.dataframe(df[numeric_cols].describe(), use_container_width=True)
+            # Biểu đồ dự báo
+            fig_pred = px.line(pred_df, x='Môn', y=['Hiện tại', 'Dự báo kỳ tới'], title="Xu Hướng Điểm Theo Môn", markers=True)
+            fig_pred.add_scatter(x=pred_df['Môn'], y=pred_df['Thay đổi'], mode='text', text=pred_df['Thay đổi'].apply(lambda x: f"{x:+.1f}"), textposition="top center", name="Thay đổi")
+            st.plotly_chart(fig_pred, use_container_width=True)
 
-        # Thống kê phân loại
-        categorical_cols = df.select_dtypes(include=['object']).columns
-        if len(categorical_cols) > 0:
-            st.subheader("Thống Kê Phân Loại (Categorical)")
-            for col in categorical_cols:
-                st.write(f"**Cột '{col}' (số giá trị duy nhất: {df[col].nunique()}):**")
-                st.dataframe(pd.DataFrame({'Value': df[col].value_counts().index, 'Count': df[col].value_counts().values}), use_container_width=True)
-
-        # Biểu đồ phân bố
-        if numeric_cols:
-            st.subheader("Biểu Đồ Phân Bố")
-            for col in numeric_cols:
-                fig = px.histogram(df, x=col, title=f"Phân Bố Cột '{col}'", nbins=20, color_discrete_sequence=['#3498db'])
-                st.plotly_chart(fig, use_container_width=True)
-
-        # Phân tích tương quan
-        if len(numeric_cols) > 1:
-            st.subheader("Phân Tích Tương Quan Giữa Các Cột Điểm")
-            correlation_matrix = df[numeric_cols].corr()
-            fig = px.imshow(correlation_matrix, text_auto=True, aspect="auto", color_continuous_scale='RdBu')
-            fig.update_layout(title="Ma trận Tương Quan")
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Dự đoán và cảnh báo với học hỏi
-        if numeric_cols and len(df) > 1:
-            st.subheader("Dự Đoán và Cảnh Báo Tình Hình Học Tập")
-            selected_col = st.selectbox("Chọn cột điểm để dự đoán", numeric_cols)
-            if 'Ngày thi' in df.columns:
-                X = (df['Ngày thi'] - df['Ngày thi'].min()).dt.days.values.reshape(-1, 1)
+            # === CẢNH BÁO HỌC SINH YẾU ===
+            st.subheader("Học Sinh Cần Hỗ Trợ")
+            weak_students = df[df['ĐTB'] < 6.5][['Họ tên', 'Lớp', 'ĐTB'] + point_cols]
+            if not weak_students.empty:
+                st.warning(f"**{len(weak_students)} học sinh có ĐTB dưới 6.5**")
+                st.dataframe(weak_students, use_container_width=True, hide_index=True)
             else:
-                X = np.arange(len(df)).reshape(-1, 1)
-            y = df[selected_col].values.reshape(-1, 1)
-            model = LinearRegression()
-            model.fit(X, y)
-            next_index = len(df) if 'Ngày thi' not in df.columns else (pd.to_datetime('2025-12-31') - df['Ngày thi'].min()).days
-            predicted_score = model.predict([[next_index]])[0][0]
-            st.write(f"Dự đoán điểm {selected_col} cho kỳ tiếp theo: {predicted_score:.2f}")
+                st.success("**Tất cả học sinh đều đạt ĐTB ≥ 6.5!**")
 
-            threshold = 5.0
-            if df[selected_col].min() < threshold or predicted_score < threshold:
-                st.warning(f"Cảnh báo: Điểm {selected_col} có giá trị thấp nhất {df[selected_col].min():.2f} hoặc dự đoán {predicted_score:.2f} dưới {threshold}. Cần hỗ trợ học sinh!")
-            elif df[selected_col].mean() < 6.5:
-                st.warning(f"Cảnh báo: Điểm trung bình {selected_col} là {df[selected_col].mean():.2f}, cần chú ý cải thiện!")
+    else:
+        st.error("Không tìm thấy cột 'Họ tên'. File Excel có thể không phải bảng điểm học sinh.")
+        st.dataframe(df.head(10), use_container_width=True)
+            # NÚT GỬI ZALO TỰ ĐỘNG CHO TỪNG MẸ
+        # ========================================
+        st.markdown("---")
+        st.subheader("Gửi Báo Cáo Tự Động Qua Zalo")
+        if st.button("GỬI BÁO CÁO CHO TỪNG MẸ QUA ZALO"):
+            with st.spinner("Đang đọc dữ liệu và gửi tin nhắn..."):
+                gui_bao_cao_zalo_tu_dong()
+        # ========================================
+# HÀM TỰ ĐỘNG GỬI ZALO CHO TỪNG MẸ
+# ========================================
+def gui_bao_cao_zalo_tu_dong():
+    ZALO_OA_TOKEN = os.environ.get("ZALO_OA_TOKEN")
+    if not ZALO_OA_TOKEN:
+        st.error("Thiếu ZALO_OA_TOKEN! Vào Render → Settings → Environment Variables để thêm.")
+        return
+
+    try:
+        # 1. Tải file phụ huynh
+        ph_df = None
+        for file in drive_files:
+            if file['name'] == "phu_huynh.xlsx":
+                ph_df = download_from_drive(file['id'])
+                break
+        if ph_df is None:
+            st.error("Không tìm thấy file `phu_huynh.xlsx` trên Google Drive!")
+            return
+
+        # 2. Tải tất cả file điểm
+        point_dfs = []
+        for file in drive_files:
+            if file['name'].startswith("diem_") and file['name'].endswith(".xlsx"):
+                df = download_from_drive(file['id'])
+                ky = file['name'].replace("diem_", "").replace(".xlsx", "")
+                df['Kỳ'] = ky
+                point_dfs.append(df)
+
+        if not point_dfs:
+            st.error("Không tìm thấy file điểm nào (diem_HK1.xlsx, diem_HK2.xlsx...)")
+            return
+
+        # 3. Gộp điểm
+        full_df = pd.concat(point_dfs, ignore_index=True)
+
+        # 4. Ghép với phụ huynh
+        merged_df = pd.merge(full_df, ph_df, on="Họ tên học sinh", how="inner")
+        if merged_df.empty:
+            st.error("Không khớp được học sinh nào! Kiểm tra tên trong 2 file.")
+            return
+
+        # 5. Gửi Zalo
+        success = 0
+        for ten_con, group in merged_df.groupby("Họ tên học sinh"):
+            me_info = group.iloc[0]
+            ten_me = me_info.get("Tên mẹ", "Phụ huynh")
+            sdt_me = str(me_info.get("SĐT Zalo mẹ", "")).strip()
+
+            # Lấy điểm Toán
+            scores = group.sort_values("Kỳ")["Điểm Toán"].tolist()
+            ky_list = group.sort_values("Kỳ")["Kỳ"].tolist()
+
+            # Dự báo
+            if len(scores) >= 2:
+                X = np.array(range(len(scores))).reshape(-1, 1)
+                y = np.array(scores)
+                model = LinearRegression().fit(X, y)
+                predicted = float(model.predict([[len(scores)]])[0])
+            else:
+                predicted = scores[-1] if scores else 0
+
+            # Biểu đồ
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=ky_list, y=scores, mode='lines+markers', name='Thực tế'))
+            fig.add_trace(go.Scatter(x=ky_list + ["Dự báo"], y=scores + [predicted], mode='lines', name='Dự báo', line=dict(dash='dot')))
+            fig.update_layout(title=f"{ten_con}", height=400, template="simple_white")
+            safe_name = "".join(c for c in ten_con if c.isalnum() or c in " _-")
+            chart_path = f"/tmp/chart_{safe_name}.png"
+            fig.write_image(chart_path)
+
+            # Tin nhắn
+            message = (
+                f"Chào cô {ten_me}!\n"
+                f"Con {ten_con}:\n"
+                f"• Điểm gần nhất: {scores[-1] if scores else 'Chưa có'}\n"
+                f"• Dự báo kỳ tới: {predicted:.2f}\n"
+                f"{'Cần hỗ trợ thêm!' if predicted < 6.5 else 'Tiếp tục phát huy!'}"
+            )
+
+            # Gửi Zalo
+            if s Whatdt_me and len(sdt_me) >= 10:
+                url = "https://openapi.zalo.me/v2.0/oa/message"
+                headers = {"access_token": ZALO_OA_TOKEN}
+                payload = {"recipient": {"phone": sdt_me}, "message": {"text": message}}
+                if os.path.exists(chart_path):
+                    with open(chart_path, "rb") as f:
+                        files = {"attachment": f}
+                        r = requests.post(url, data=payload, headers=headers, files=files)
+                else:
+                    r = requests.post(url, json=payload, headers=headers)
+                if r.json().get("error") == 0:
+                    success += 1
+                time.sleep(1)
+
+            # Xóa ảnh
+            if os.path.exists(chart_path):
+                os.remove(chart_path)
+
+        st.success(f"ĐÃ GỬI THÀNH CÔNG CHO {success} PHỤ HUYNH QUA ZALO!")
+
+    except Exception as e:
+        st.error(f"Lỗi gửi Zalo: {str(e)}")
+
+            # ========================================
+        
+
 
     # Footer
     st.markdown(
