@@ -1,3 +1,4 @@
-"*.json" 
-"__pycache__/" 
-".venv/" 
+echo service_account.json > .gitignore
+echo *.json >> .gitignore
+echo __pycache__/ >> .gitignore
+echo .env >> .gitignore

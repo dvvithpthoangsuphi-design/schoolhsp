@@ -25,26 +25,33 @@ for key in ['authenticated', 'data_store', 'selected_dataset']:
     if key not in st.session_state:
         st.session_state[key] = False if key == 'authenticated' else {} if key == 'data_store' else None
 
-# ===================== SERVICE ACCOUNT (RENDER ONLY) =====================
+# ===================== SERVICE ACCOUNT (RENDER ONLY - ENV VAR) =====================
 SCOPES = ['https://www.googleapis.com/auth/drive']
-SERVICE_ACCOUNT_FILE = 'service_account.json'
+SERVICE_ACCOUNT_JSON = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
 
 @st.cache_resource
 def get_drive_service():
+    if not SERVICE_ACCOUNT_JSON:
+        st.error("Thiếu biến môi trường GOOGLE_APPLICATION_CREDENTIALS!")
+        st.info("Vào Render → Settings → Environment Variables → Thêm key: GOOGLE_APPLICATION_CREDENTIALS")
+        return None
     try:
-        creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-        return build('drive', 'v3', credentials=creds)
+        creds_info = json.loads(SERVICE_ACCOUNT_JSON)
+        creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+        service = build('drive', 'v3', credentials=creds)
+        st.success("Kết nối Google Drive thành công!")
+        return service
     except Exception as e:
         st.error(f"Lỗi Service Account: {e}")
-        st.info("Kiểm tra file `service_account.json` trong repo!")
+        st.info("Kiểm tra JSON trong biến môi trường có đúng không?")
         return None
 
 drive_service = get_drive_service()
 if not drive_service:
     st.stop()
 
-# THAY BẰNG ID THƯ MỤC TRONG SHARED DRIVE
-FOLDER_ID = '1K6Z-huJcdphdM42o2NL3kvu6KY7asD_u'  # ← ĐÃ ĐÚNG
+# ID THƯ MỤC TRONG SHARED DRIVE
+FOLDER_ID = '1K6Z-huJcdphdM42o2NL3kvu6KY7asD_u'
 
 # ===================== ĐĂNG NHẬP =====================
 if not st.session_state.authenticated:
@@ -73,7 +80,8 @@ if st.session_state.authenticated:
     if uploaded_file:
         file_name = uploaded_file.name
         try:
-            if file_scratch = file_name.endswith('.csv'):
+            # SỬA LỖI: if file_scratch = → if file_name.endswith
+            if file_name.endswith('.csv'):
                 df = pd.read_csv(uploaded_file, dtype=str)
             else:
                 df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
@@ -88,7 +96,8 @@ if st.session_state.authenticated:
                 f.write(uploaded_file.getbuffer())
             try:
                 file_metadata = {'name': file_name, 'parents': [FOLDER_ID]}
-                media = MediaFileUpload(temp_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+                mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if file_name.endswith('.xlsx') else 'text/csv'
+                media = MediaFileUpload(temp_path, mimetype=mimetype, resumable=True)
                 drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
                 st.success("Đã upload lên Google Drive!")
             except Exception as e:
@@ -152,7 +161,7 @@ if st.session_state.authenticated:
         # BIỂU ĐỒ 2: PHÂN BỐ ĐTB
         st.subheader("Phân Bố ĐTB")
         fig_hist = px.histogram(df, x='ĐTB', nbins=15, title="Phân Bố Điểm Trung Bình")
-        fig_hist.add_vline(x=df['ĐTB'].mean(), line_dash="dash", line_color="red")
+        fig_hist.add_vline(x=df['ĐTB'].mean(), line_dash="dash", line_color="red", annotation_text=f"TB: {df['ĐTB'].mean():.2f}")
         st.plotly_chart(fig_hist, use_container_width=True)
 
         # BIỂU ĐỒ 3: DỰ BÁO AI
