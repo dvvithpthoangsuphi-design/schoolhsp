@@ -10,61 +10,41 @@ from sklearn.linear_model import LinearRegression
 import requests
 import time
 from io import BytesIO
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
-# ===================== CONFIG & AUTH =====================
+# ===================== CONFIG =====================
 st.set_page_config(page_title="AI Dự Báo Điểm", layout="wide")
 
 # Load config
-config_path = 'auth_config.yaml'
-config = None
-if os.path.exists(config_path):
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
-elif 'AUTH_CONFIG' in os.environ:
-    config = yaml.safe_load(os.environ['AUTH_CONFIG'])
+config = yaml.safe_load(os.environ.get('AUTH_CONFIG', '{}'))
 
 # Session state
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'data_store' not in st.session_state:
-    st.session_state.data_store = {}
-if 'selected_dataset' not in st.session_state:
-    st.session_state.selected_dataset = None
-if 'drive_service' not in st.session_state:
-    st.session_state.drive_service = None
+for key in ['authenticated', 'data_store', 'selected_dataset']:
+    if key not in st.session_state:
+        st.session_state[key] = False if key == 'authenticated' else {} if key == 'data_store' else None
 
-# ===================== OAUTH 2.0 SETUP =====================
+# ===================== SERVICE ACCOUNT (RENDER ONLY) =====================
 SCOPES = ['https://www.googleapis.com/auth/drive']
-CLIENT_CONFIG = {
-    "installed": {
-        "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
-        "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET"),
-        "redirect_uris": ["http://localhost:8501"],
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token"
-    }
-}
+SERVICE_ACCOUNT_FILE = 'service_account.json'
 
+@st.cache_resource
 def get_drive_service():
-    if st.session_state.drive_service:
-        return st.session_state.drive_service
-    
-    creds = None
-    if 'google_token' in st.session_state:
-        creds = Credentials.from_authorized_user_info(st.session_state.google_token, SCOPES)
-    
-    if not creds or not creds.valid:
-        flow = InstalledAppFlow.from_client_config(CLIENT_CONFIG, SCOPES)
-        creds = flow.run_local_server(port=8501)
-        st.session_state.google_token = creds.to_json()
-    
-    service = build('drive', 'v3', credentials=creds)
-    st.session_state.drive_service = service
-    return service
+    try:
+        creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+        return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        st.error(f"Lỗi Service Account: {e}")
+        st.info("Kiểm tra file `service_account.json` trong repo!")
+        return None
+
+drive_service = get_drive_service()
+if not drive_service:
+    st.stop()
+
+# THAY BẰNG ID THƯ MỤC TRONG SHARED DRIVE
+FOLDER_ID = '1K6Z-huJcdphdM42o2NL3kvu6KY7asD_u'  # ← ĐÃ ĐÚNG
 
 # ===================== ĐĂNG NHẬP =====================
 if not st.session_state.authenticated:
@@ -72,14 +52,11 @@ if not st.session_state.authenticated:
     username = st.text_input("Tên người dùng")
     password = st.text_input("Mật khẩu", type="password")
     if st.button("Đăng nhập"):
-        if config and username in config['credentials']['usernames']:
-            if config['credentials']['usernames'][username]['password'] == password:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Sai mật khẩu!")
+        if config.get('credentials', {}).get('usernames', {}).get(username, {}).get('password') == password:
+            st.session_state.authenticated = True
+            st.rerun()
         else:
-            st.error("Sai tên đăng nhập!")
+            st.error("Sai thông tin!")
 else:
     if st.sidebar.button("Đăng xuất"):
         st.session_state.authenticated = False
@@ -88,23 +65,15 @@ else:
 # ===================== GIAO DIỆN CHÍNH =====================
 if st.session_state.authenticated:
     st.title("AI Dự Báo Điểm Học Sinh")
-    st.markdown("<div style='background:linear-gradient(90deg,#2c3e50,#3498db);color:white;padding:20px;text-align:center;border-radius:10px;margin-bottom:20px'>Chào mừng đến với Hệ Thống AI Dự Báo Điểm Học Sinh</div>", unsafe_allow_html=True)
-
-    try:
-        drive_service = get_drive_service()
-        FOLDER_ID = '1K6Z-huJcdphdM42o2NL3kvu6KY7asD_u'
-    except Exception as e:
-        st.error(f"Lỗi Google Drive: {e}")
-        drive_service = None
-        FOLDER_ID = None
+    st.markdown("<div style='background:linear-gradient(90deg,#2c3e50,#3498db);color:white;padding:20px;text-align:center;border-radius:10px'>HỆ THỐNG HOẠT ĐỘNG TRÊN RENDER</div>", unsafe_allow_html=True)
 
     # ===================== UPLOAD FILE =====================
     st.subheader("Tải Lên Dữ Liệu Mới")
     uploaded_file = st.file_uploader("Chọn file", type=["csv", "xlsx", "xls", "json"])
-    if uploaded_file and drive_service:
+    if uploaded_file:
         file_name = uploaded_file.name
         try:
-            if file_name.endswith('.csv'):
+            if file_scratch = file_name.endswith('.csv'):
                 df = pd.read_csv(uploaded_file, dtype=str)
             else:
                 df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
@@ -119,9 +88,9 @@ if st.session_state.authenticated:
                 f.write(uploaded_file.getbuffer())
             try:
                 file_metadata = {'name': file_name, 'parents': [FOLDER_ID]}
-                media = MediaFileUpload(temp_path, resumable=True)
-                file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-                st.success(f"Đã upload lên Google Drive!")
+                media = MediaFileUpload(temp_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+                drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+                st.success("Đã upload lên Google Drive!")
             except Exception as e:
                 st.error(f"Upload lỗi: {e}")
             finally:
@@ -131,81 +100,90 @@ if st.session_state.authenticated:
             st.error(f"Lỗi đọc file: {e}")
 
     # ===================== TẢI TỪ DRIVE =====================
-    drive_files = []
-    if drive_service:
-        try:
-            results = drive_service.files().list(q=f"'{FOLDER_ID}' in parents", fields="files(id, name)").execute()
-            drive_files = results.get('files', [])
-            if drive_files:
-                st.subheader("Dữ Liệu Từ Google Drive")
-                for file in drive_files:
-                    if file['name'] not in st.session_state.data_store:
-                        try:
-                            df = download_from_drive(drive_service, file['id'])
-                            st.session_state.data_store[file['name']] = df
-                            st.success(f"Đã tải '{file['name']}'")
-                            st.session_state.selected_dataset = file['name']
-                        except Exception as e:
-                            st.error(f"Lỗi tải: {e}")
-        except Exception as e:
-            st.error(f"Lỗi truy cập Drive: {e}")
+    try:
+        results = drive_service.files().list(q=f"'{FOLDER_ID}' in parents", fields="files(id, name)").execute()
+        drive_files = results.get('files', [])
+        if drive_files:
+            st.subheader("Dữ Liệu Từ Google Drive")
+            for file in drive_files:
+                if file['name'] not in st.session_state.data_store:
+                    request = drive_service.files().get_media(fileId=file['id'])
+                    fh = BytesIO()
+                    downloader = MediaIoBaseDownload(fh, request)
+                    done = False
+                    while not done:
+                        status, done = downloader.next_chunk()
+                    fh.seek(0)
+                    df = pd.read_excel(fh) if file['name'].endswith('.xlsx') else pd.read_csv(fh)
+                    st.session_state.data_store[file['name']] = df
+                    st.success(f"Đã tải {file['name']}")
+    except Exception as e:
+        st.error(f"Lỗi tải: {e}")
 
-    # ===================== PHÂN TÍCH =====================
-    if st.session_state.data_store and st.session_state.selected_dataset:
+    # ===================== PHÂN TÍCH + BIỂU ĐỒ =====================
+    if st.session_state.selected_dataset:
         df = st.session_state.data_store[st.session_state.selected_dataset]
-        
-        st.subheader("Bảng Điểm Học Sinh")
-        if 'Họ tên' in df.columns or any('tên' in str(col).lower() for col in df.columns):
-            # Tìm cột tên
-            name_col = next((col for col in df.columns if 'tên' in str(col).lower()), None)
-            df = df.rename(columns={name_col: 'Họ tên'}) if name_col else df
-            
-            point_cols = [col for col in df.columns if col not in ['Họ tên', 'Lớp']]
-            for col in point_cols:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            df['ĐTB'] = df[point_cols].mean(axis=1).round(2)
-            df = df.sort_values('ĐTB', ascending=False)
 
-            display_df = df[['Họ tên', 'Lớp'] + point_cols].dropna(subset=['Họ tên'])
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-            # Top 3
-            st.subheader("Top 3 Học Sinh")
-            top3 = df.head(3)
-            st.dataframe(top3[['Họ tên', 'Lớp', 'ĐTB']], use_container_width=True, hide_index=True)
-
-            # Dự báo
-            st.subheader("Dự Báo AI")
-            pred_data = []
-            for col in point_cols:
-                mean_val = df[col].mean()
-                pred = mean_val * 1.05 if mean_val > 0 else 0
-                pred_data.append({"Môn": col, "Hiện tại": round(mean_val, 2), "Dự báo": round(pred, 2)})
-            st.dataframe(pd.DataFrame(pred_data), use_container_width=True, hide_index=True)
-
+        # Tìm cột tên
+        name_col = next((col for col in df.columns if 'tên' in str(col).lower()), None)
+        if name_col:
+            df = df.rename(columns={name_col: 'Họ tên'})
         else:
-            st.error("Không tìm thấy cột tên học sinh.")
-            st.dataframe(df.head(5))
+            st.error("Không tìm thấy cột tên!")
+            st.stop()
+
+        point_cols = [col for col in df.columns if col not in ['Họ tên', 'Lớp']]
+        for col in point_cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        df['ĐTB'] = df[point_cols].mean(axis=1).round(2)
+        df = df.sort_values('ĐTB', ascending=False)
+
+        st.subheader("Bảng Điểm Học Sinh")
+        st.dataframe(df[['Họ tên', 'Lớp'] + point_cols + ['ĐTB']], use_container_width=True)
+
+        # BIỂU ĐỒ 1: TOP 3
+        st.subheader("Top 3 Học Sinh")
+        top3 = df.head(3)
+        st.dataframe(top3[['Họ tên', 'Lớp', 'ĐTB']], use_container_width=True)
+        fig_top = px.bar(top3.melt(id_vars='Họ tên', value_vars=point_cols), x='Họ tên', y='value', color='variable', title="Top 3 So Sánh Môn")
+        st.plotly_chart(fig_top, use_container_width=True)
+
+        # BIỂU ĐỒ 2: PHÂN BỐ ĐTB
+        st.subheader("Phân Bố ĐTB")
+        fig_hist = px.histogram(df, x='ĐTB', nbins=15, title="Phân Bố Điểm Trung Bình")
+        fig_hist.add_vline(x=df['ĐTB'].mean(), line_dash="dash", line_color="red")
+        st.plotly_chart(fig_hist, use_container_width=True)
+
+        # BIỂU ĐỒ 3: DỰ BÁO AI
+        st.subheader("Dự Báo AI Kỳ Tới")
+        pred_data = []
+        for col in point_cols:
+            scores = df[col].dropna()
+            if len(scores) >= 2:
+                X = np.arange(len(scores)).reshape(-1, 1)
+                model = LinearRegression().fit(X, scores.values.reshape(-1, 1))
+                pred = model.predict([[len(scores)]])[0][0]
+            else:
+                pred = scores.mean()
+            pred_data.append({"Môn": col, "Hiện tại": scores.mean().round(2), "Dự báo": round(pred, 2)})
+        pred_df = pd.DataFrame(pred_data)
+        st.dataframe(pred_df, use_container_width=True)
+        fig_pred = px.line(pred_df.melt(id_vars='Môn'), x='Môn', y='value', color='variable', title="Xu Hướng Điểm")
+        st.plotly_chart(fig_pred, use_container_width=True)
+
+        # BIỂU ĐỒ 4: TƯƠNG QUAN
+        if len(point_cols) > 1:
+            st.subheader("Tương Quan Giữa Các Môn")
+            corr = df[point_cols].corr()
+            fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='RdBu')
+            st.plotly_chart(fig_corr, use_container_width=True)
 
     # ===================== GỬI ZALO =====================
     st.markdown("---")
     st.subheader("Gửi Báo Cáo Qua Zalo")
-    
-    def gui_bao_cao_zalo_tu_dong():
-        token = os.environ.get('ZALO_OA_TOKEN')
-        if not token:
-            st.error("Thiếu ZALO_OA_TOKEN!")
-            return
+    if st.button("GỬI CHO TỪNG MẸ"):
         st.info("Chức năng đang phát triển...")
 
-    if st.button("GỬI CHO TỪNG MẸ"):
-        with st.spinner("Đang xử lý..."):
-            gui_bao_cao_zalo_tu_dong()
-
     # ===================== FOOTER =====================
-    st.markdown("""
-    <div style='position:fixed;bottom:0;width:100%;background:linear-gradient(90deg,#3498db,#2c3e50);color:white;padding:10px;text-align:center'>
-    © 2025 AI Dự Báo Điểm Học Sinh
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div style='position:fixed;bottom:0;width:100%;background:#2c3e50;color:white;padding:10px;text-align:center'>© 2025 AI Dự Báo Điểm</div>", unsafe_allow_html=True)
