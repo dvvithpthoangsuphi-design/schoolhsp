@@ -276,7 +276,7 @@ if st.session_state.authenticated:
 
     # Analysis section
     if st.session_state.data_store and st.session_state.selected_dataset:
-    df = st.session_state.data_store[st.session_state.selected_dataset]
+        df = st.session_state.data_store[st.session_state.selected_dataset]
 
     # === HIỂN THỊ BẢNG HỌC SINH SIÊU THÍCH NGHI ===
     st.subheader("Bảng Điểm Học Sinh")
