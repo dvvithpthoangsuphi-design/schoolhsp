@@ -438,7 +438,7 @@ def gui_bao_cao_zalo_tu_dong():
             )
 
             # Gửi Zalo
-            if s Whatdt_me and len(sdt_me) >= 10:
+           if sdt_me and len(sdt_me) >= 10:
                 url = "https://openapi.zalo.me/v2.0/oa/message"
                 headers = {"access_token": ZALO_OA_TOKEN}
                 payload = {"recipient": {"phone": sdt_me}, "message": {"text": message}}
