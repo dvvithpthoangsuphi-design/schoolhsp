@@ -18,7 +18,11 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 st.set_page_config(page_title="AI Dự Báo Điểm", layout="wide")
 
 # Load config
-config = yaml.safe_load(os.environ.get('AUTH_CONFIG', '{}'))
+if os.path.exists('config.yaml'):
+    with open('config.yaml', 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+else:
+    config = yaml.safe_load(os.environ.get('AUTH_CONFIG', '{}'))
 
 # Session state
 for key in ['authenticated', 'data_store', 'selected_dataset']:
