@@ -364,13 +364,27 @@ if st.session_state.authenticated:
             st.info("**Zalo chưa được cấu hình.** Thiết lập `ZALO_OA_TOKEN` trong Environment.")
 
         return True
-    # NÚT CHẠY
-    col1, col2, col3, col4 = st.columns(4)
-    with col1: st.button("AI 1: Xử lý", on_click=run_ai1)
-    with col2: st.button("AI 2: Phân tích", on_click=run_ai2)
-    with col3: st.button("AI 3: Báo cáo", on_click=run_ai3)
-    with col6:
-        if st.button("TOÀN BỘ"):
+    # === NÚT CHẠY AI (4 CỘT – ĐỂU, ĐẸP) ===
+st.markdown("---")
+st.subheader("Chạy AI Pipeline")
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    if st.button("🔄 **AI 1: Xử lý**", type="primary"):
+        run_ai1()
+
+with col2:
+    if st.button("📊 **AI 2: Phân tích**", type="secondary"):
+        run_ai2()
+
+with col3:
+    if st.button("📈 **AI 3: Báo cáo**", type="secondary"):
+        run_ai3()
+
+with col4:
+    if st.button("🚀 **TOÀN BỘ**", type="primary", use_container_width=True):
+        with st.spinner("Đang chạy toàn bộ pipeline..."):
             if run_ai1():
                 time.sleep(3)
                 if run_ai2():
