@@ -378,20 +378,36 @@ if st.session_state.authenticated:
                     run_ai3()
 
     # Hiển thị kết quả
-   if 'ai2_result' in st.session_state and st.session_state.ai2_result:
+       # === HIỂN THỊ KẾT QUẢ PHÂN TÍCH (AN TOÀN, KHÔNG LỖI) ===
+    if 'ai2_result' in st.session_state and st.session_state.ai2_result:
         df = pd.DataFrame(st.session_state.ai2_result)
-        st.subheader("Kết quả phân tích")
+        st.subheader("Kết quả phân tích (AI 2)")
 
-        # Chỉ lấy cột có sẵn
-        cols = ['Họ tên', 'Lớp', 'ĐTB', 'Đánh giá', 'Dự báo', 'Cảnh báo']
-        available = [c for c in cols if c in df.columns]
+        # Danh sách cột ưu tiên
+        preferred_cols = ['Họ tên', 'Lớp', 'ĐTB', 'Đánh giá', 'Dự báo', 'Cảnh báo', 'Xếp hạng lớp', 'Xếp hạng trường']
+        available_cols = [col for col in preferred_cols if col in df.columns]
 
-        if available:
-            st.dataframe(df[available], use_container_width=True)
+        if available_cols:
+            st.dataframe(
+                df[available_cols],
+                use_container_width=True,
+                hide_index=False
+            )
         else:
-            st.error("Không có dữ liệu hợp lệ để hiển thị!")
+            st.error("Không có cột nào hợp lệ để hiển thị!")
+
+        # Hiển thị cột bị thiếu
+        missing = [col for col in preferred_cols if col not in df.columns]
+        if missing:
+            st.warning(f"Thiếu cột: `{', '.join(missing)}`")
+
+        # Debug: Xem toàn bộ dữ liệu
+        with st.expander("Xem toàn bộ dữ liệu (debug)"):
+            st.write(f"**Số học sinh:** {len(df)}")
+            st.write(f"**Tất cả cột:** {list(df.columns)}")
+            st.dataframe(df, use_container_width=True)
     else:
-        st.info("Chưa có kết quả. Vui lòng chạy **AI 1 → AI 2 → AI 3**")
+        st.info("Chưa có kết quả. Vui lòng chạy **AI 1 → AI 2 → AI 3** theo thứ tự.")
 
     st.markdown(
         "<div style='position:fixed;bottom:0;width:100%;background:#2c3e50;color:white;padding:10px;text-align:center'>"
