@@ -80,6 +80,7 @@ def ensure_folders():
         folders[name.replace(" ", "_").upper()] = folder_id
     FOLDER_STRUCTURE.update(folders)
     st.session_state.folder_ids = FOLDER_STRUCTURE
+    st.info(f"Thư mục đã sẵn sàng: AI1_OUTPUT = {folders['AI1_CLEANED_DATA']}")
     return FOLDER_STRUCTURE
 
 # ===================== LOGIN =====================
@@ -155,15 +156,27 @@ if st.session_state.authenticated:
             return True
 
     # AI 2: Phân tích
+        # AI 2: Phân tích
+        # AI 2: Phân tích
     def run_ai2():
         with st.spinner("AI 2: Đang phân tích và dự báo..."):
-            res = drive_service.files().list(
-                q=f"'{folders['AI1_OUTPUT']}' in parents", orderBy="modifiedTime desc"
-            ).execute()
-            file_id = res.get('files', [{}])[0].get('id')
-            if not file_id:
-                st.error("Chưa có dữ liệu từ AI 1!")
+            # ĐẢM BẢO THƯ MỤC AI1_OUTPUT ĐÃ TỒN TẠI
+            if not st.session_state.folder_ids or not st.session_state.folder_ids.get('AI1_OUTPUT'):
+                st.error("Chưa chạy AI 1 hoặc thư mục AI1_OUTPUT chưa được tạo!")
                 return False
+
+            folder_id = st.session_state.folder_ids['AI1_OUTPUT']
+            res = drive_service.files().list(
+                q=f"'{folder_id}' in parents and mimeType='application/json'",
+                orderBy="modifiedTime desc",
+                fields="files(id, name)"
+            ).execute()
+            files = res.get('files', [])
+            if not files:
+                st.error("Không tìm thấy file cleaned.json trong AI1_OUTPUT!")
+                return False
+
+            file_id = files[0]['id']
             fh = BytesIO()
             downloader = MediaIoBaseDownload(fh, drive_service.files().get_media(fileId=file_id))
             done = False
@@ -172,8 +185,12 @@ if st.session_state.authenticated:
             fh.seek(0)
             data = json.load(fh)
             df = pd.DataFrame(data)
+
+            # Xếp hạng
             df['Xếp hạng lớp'] = df.groupby('Lớp')['ĐTB'].rank(ascending=False, method='min').astype(int)
             df['Xếp hạng trường'] = df['ĐTB'].rank(ascending=False, method='min').astype(int)
+
+            # Dự báo
             preds = []
             for col in df.iloc[0]['Môn']:
                 s = df[col].dropna()
@@ -184,14 +201,19 @@ if st.session_state.authenticated:
                     pred = s.mean() if not s.empty else 6.0
                 preds.append(pred)
             df['Dự báo'] = round(np.mean(preds), 2)
+
+            # Đánh giá + Cảnh báo
             df['Đánh giá'] = df['ĐTB'].apply(lambda x: "Giỏi" if x >= 8 else "Khá" if x >= 6.5 else "Trung bình" if x >= 5 else "Yếu")
             df['Cảnh báo'] = df.apply(lambda r: "Nguy cơ học lực yếu" if r['ĐTB'] < 5 else "Cảnh báo giảm điểm" if r['Dự báo'] < r['ĐTB'] else "Ổn định", axis=1)
+
+            # Lưu kết quả
             output = df.to_json(orient="records", force_ascii=False, indent=2).encode('utf-8')
             media = MediaFileUpload(BytesIO(output), mimetype='application/json')
             drive_service.files().create(
-                body={'name': f"analysis_{int(time.time())}.json", 'parents': [folders['AI2_OUTPUT']]},
+                body={'name': f"analysis_{int(time.time())}.json", 'parents': [st.session_state.folder_ids['AI2_OUTPUT']]},
                 media_body=media
             ).execute()
+
             st.session_state.ai2_result = df.to_dict("records")
             st.success("AI 2: Phân tích hoàn tất!")
             return True
