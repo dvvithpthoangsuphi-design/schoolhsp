@@ -196,23 +196,22 @@ if st.session_state.authenticated:
             st.success("AI 2: Phân tích hoàn tất!")
             return True
 
-    # AI 3: Biểu đồ + Gửi Zalo
+    # AI 3: Biểu đồ (hiển thị trên app) + Gửi Zalo
     def run_ai3():
         if 'ai2_result' not in st.session_state:
             st.error("Chưa có kết quả từ AI 2!")
             return
         df = pd.DataFrame(st.session_state.ai2_result)
-        os.makedirs("temp", exist_ok=True)
-        # Biểu đồ 1
+        
+        # Biểu đồ 1: ĐTB theo lớp (hiển thị trực tiếp, không lưu PNG)
         fig1 = px.bar(df.groupby('Lớp')['ĐTB'].mean().reset_index(), x='Lớp', y='ĐTB', title="ĐTB Trung bình theo lớp")
-        fig1.write_image("temp/class_avg.png")
-        with open("temp/class_avg.png", "rb") as f:
-            media = MediaFileUpload(f, mimetype='image/png')
-            drive_service.files().create(
-                body={'name': f"class_avg_{int(time.time())}.png", 'parents': [folders['AI3_REPORTS']]},
-                media_body=media
-            ).execute()
-        st.success("AI 3: Biểu đồ đã lưu!")
+        st.plotly_chart(fig1, use_container_width=True)
+        
+        # Biểu đồ 2: Phân bố đánh giá
+        fig2 = px.pie(df['Đánh giá'].value_counts().reset_index(), names='Đánh giá', values='count', title="Phân bố học lực")
+        st.plotly_chart(fig2, use_container_width=True)
+        
+        st.success("AI 3: Biểu đồ đã hiển thị! (Lưu thủ công nếu cần)")
 
         # Gửi Zalo
         zalo_token = os.environ.get('ZALO_OA_TOKEN')
