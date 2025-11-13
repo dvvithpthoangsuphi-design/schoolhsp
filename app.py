@@ -110,51 +110,99 @@ if st.session_state.authenticated:
     folders = ensure_folders()
 
     # AI 1: Xử lý dữ liệu
+        # AI 1: Xử lý dữ liệu (HỖ TRỢ CẢ GOOGLE SHEETS & FILE THẬT)
     def run_ai1():
-        with st.spinner("AI 1: Đang xử lý dữ liệu từ Google Drive..."):
+        with st.spinner("AI 1: Đang xử lý file điểm mới nhất..."):
+            # Lấy file mới nhất (không phân biệt loại)
             res = drive_service.files().list(
                 q=f"'{folders['RAW_DATA']}' in parents and trashed=false",
-                fields="files(id, name, modifiedTime)", orderBy="modifiedTime desc"
+                fields="files(id, name, mimeType, modifiedTime)",
+                orderBy="modifiedTime desc"
             ).execute()
             files = res.get('files', [])
             if not files:
                 st.warning("Không có file trong thư mục RAW_DATA!")
                 return False
+
             file = files[0]
+            file_id = file['id']
+            file_name = file['name']
+            mime_type = file['mimeType']
+
             fh = BytesIO()
-            downloader = MediaIoBaseDownload(fh, drive_service.files().get_media(fileId=file['id']))
-            done = False
-            while not done:
-                status, done = downloader.next_chunk()
+
+            # CASE 1: File thật (.xlsx, .csv) → Tải trực tiếp
+            if mime_type in [
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
+                'text/csv',
+                'application/vnd.ms-excel'  # .xls cũ
+            ]:
+                request = drive_service.files().get_media(fileId=file_id)
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
+
+            # CASE 2: Google Sheets → Export thành CSV
+            elif mime_type == 'application/vnd.google-apps.spreadsheet':
+                request = drive_service.files().export_media(fileId=file_id, mimeType='text/csv')
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
+                file_name = file_name.replace('.xlsx', '.csv').replace('.xls', '.csv')
+
+            # CASE 3: Không hỗ trợ
+            else:
+                st.error(f"Không hỗ trợ định dạng: {mime_type}")
+                return False
+
             fh.seek(0)
-            df = pd.read_excel(fh) if file['name'].endswith('.xlsx') else pd.read_csv(fh)
+
+            # Đọc dữ liệu
+            if file_name.endswith('.csv'):
+                df = pd.read_csv(fh, dtype=str)
+            else:
+                df = pd.read_excel(fh, engine='openpyxl', dtype=str)
+
             # Tìm cột
-            name_col = next((c for c in df.columns if 'tên' in str(c).lower()), 'Họ tên')
-            class_col = next((c for c in df.columns if 'lớp' in str(c).lower()), 'Lớp')
+            name_col = next((c for c in df.columns if 'tên' in str(c).lower()), None)
+            class_col = next((c for c in df.columns if 'lớp' in str(c).lower()), None)
+            if not name_col or not class_col:
+                st.error("Không tìm thấy cột 'Họ tên' hoặc 'Lớp'!")
+                return False
             df = df.rename(columns={name_col: 'Họ tên', class_col: 'Lớp'})
+
+            # Xử lý điểm
             point_cols = [c for c in df.columns if c not in ['Họ tên', 'Lớp', 'Zalo_ID']]
             for c in point_cols:
                 df[c] = pd.to_numeric(df[c], errors='coerce')
             df['ĐTB'] = df[point_cols].mean(axis=1).round(2)
+
             # Chuẩn hóa
             records = []
             for _, r in df.iterrows():
                 records.append({
                     "Họ tên": r['Họ tên'],
                     "Lớp": r['Lớp'],
-                    "Zalo_ID": str(r.get('Zalo_ID', '')),
-                    "ĐTB": r['ĐTB'],
+                    "Zalo_ID": str(r.get('Zalo_ID', '')).strip(),
+                    "ĐTB": float(r['ĐTB']) if pd.notna(r['ĐTB']) else None,
                     "Môn": {c: float(r[c]) if pd.notna(r[c]) else None for c in point_cols}
                 })
+
+            # Lưu cleaned.json
             output = json.dumps(records, ensure_ascii=False, indent=2).encode('utf-8')
             media = MediaFileUpload(BytesIO(output), mimetype='application/json')
             drive_service.files().create(
-                body={'name': f"cleaned_{int(time.time())}.json", 'parents': [folders['AI1_OUTPUT']]},
+                body={
+                    'name': f"cleaned_{int(time.time())}.json",
+                    'parents': [folders['AI1_OUTPUT']]
+                },
                 media_body=media
             ).execute()
-            st.success("AI 1: Đã xử lý và lưu dữ liệu sạch!")
-            return True
 
+            st.success(f"AI 1: Đã xử lý `{file_name}` → lưu JSON!")
+            return True
     # AI 2: Phân tích
         # AI 2: Phân tích
         # AI 2: Phân tích
