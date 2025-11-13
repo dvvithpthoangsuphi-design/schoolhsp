@@ -84,13 +84,11 @@ if st.session_state.authenticated:
     if uploaded_file:
         file_name = uploaded_file.name
         try:
-            # SỬA LỖI: if file_scratch = → if file_name.endswith
             if file_name.endswith('.csv'):
                 df = pd.read_csv(uploaded_file, dtype=str)
             else:
                 df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
             st.success(f"Đọc thành công {len(df)} hàng!")
-
             st.session_state.data_store[file_name] = df
             st.session_state.selected_dataset = file_name
 
@@ -112,7 +110,7 @@ if st.session_state.authenticated:
         except Exception as e:
             st.error(f"Lỗi đọc file: {e}")
 
-    # ===================== TẢI TỪ DRIVE =====================
+    # ===================== TẢI TỪ DRIVE + TỰ ĐỘNG HIỂN THỊ =====================
     try:
         results = drive_service.files().list(q=f"'{FOLDER_ID}' in parents", fields="files(id, name)").execute()
         drive_files = results.get('files', [])
@@ -130,6 +128,9 @@ if st.session_state.authenticated:
                     df = pd.read_excel(fh) if file['name'].endswith('.xlsx') else pd.read_csv(fh)
                     st.session_state.data_store[file['name']] = df
                     st.success(f"Đã tải {file['name']}")
+                    # TỰ ĐỘNG HIỂN THỊ FILE MỚI TẢI VỀ
+                    st.session_state.selected_dataset = file['name']
+                    st.rerun()  # TẢI LẠI TRANG ĐỂ HIỂN THỊ NGAY
     except Exception as e:
         st.error(f"Lỗi tải: {e}")
 
@@ -148,7 +149,6 @@ if st.session_state.authenticated:
         point_cols = [col for col in df.columns if col not in ['Họ tên', 'Lớp']]
         for col in point_cols:
             df[col] = pd.to_numeric(df[col], errors='coerce')
-
         df['ĐTB'] = df[point_cols].mean(axis=1).round(2)
         df = df.sort_values('ĐTB', ascending=False)
 
