@@ -111,9 +111,10 @@ if st.session_state.authenticated:
 
     # AI 1: Xử lý dữ liệu
         # AI 1: Xử lý dữ liệu (HỖ TRỢ CẢ GOOGLE SHEETS & FILE THẬT)
+        # AI 1: Xử lý dữ liệu (TÌM CỘT THÔNG MINH + BÁO LỖI RÕ RÀNG)
     def run_ai1():
         with st.spinner("AI 1: Đang xử lý file điểm mới nhất..."):
-            # Lấy file mới nhất (không phân biệt loại)
+            # === LẤY FILE MỚI NHẤT ===
             res = drive_service.files().list(
                 q=f"'{folders['RAW_DATA']}' in parents and trashed=false",
                 fields="files(id, name, mimeType, modifiedTime)",
@@ -121,7 +122,7 @@ if st.session_state.authenticated:
             ).execute()
             files = res.get('files', [])
             if not files:
-                st.warning("Không có file trong thư mục RAW_DATA!")
+                st.warning("Không có file nào trong thư mục RAW_DATA!")
                 return False
 
             file = files[0]
@@ -129,80 +130,117 @@ if st.session_state.authenticated:
             file_name = file['name']
             mime_type = file['mimeType']
 
+            # === TẢI FILE (HỖ TRỢ CẢ GOOGLE SHEETS & FILE THẬT) ===
             fh = BytesIO()
+            try:
+                if mime_type == 'application/vnd.google-apps.spreadsheet':
+                    # Google Sheets → Export CSV
+                    request = drive_service.files().export_media(fileId=file_id, mimeType='text/csv')
+                    file_name = file_name.rsplit('.', 1)[0] + '.csv'
+                else:
+                    # File thật (.xlsx, .csv)
+                    request = drive_service.files().get_media(fileId=file_id)
 
-            # CASE 1: File thật (.xlsx, .csv) → Tải trực tiếp
-            if mime_type in [
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
-                'text/csv',
-                'application/vnd.ms-excel'  # .xls cũ
-            ]:
-                request = drive_service.files().get_media(fileId=file_id)
                 downloader = MediaIoBaseDownload(fh, request)
                 done = False
                 while not done:
                     status, done = downloader.next_chunk()
-
-            # CASE 2: Google Sheets → Export thành CSV
-            elif mime_type == 'application/vnd.google-apps.spreadsheet':
-                request = drive_service.files().export_media(fileId=file_id, mimeType='text/csv')
-                downloader = MediaIoBaseDownload(fh, request)
-                done = False
-                while not done:
-                    status, done = downloader.next_chunk()
-                file_name = file_name.replace('.xlsx', '.csv').replace('.xls', '.csv')
-
-            # CASE 3: Không hỗ trợ
-            else:
-                st.error(f"Không hỗ trợ định dạng: {mime_type}")
+            except Exception as e:
+                st.error(f"Lỗi tải file: {e}")
                 return False
 
             fh.seek(0)
 
-            # Đọc dữ liệu
-            if file_name.endswith('.csv'):
-                df = pd.read_csv(fh, dtype=str)
-            else:
-                df = pd.read_excel(fh, engine='openpyxl', dtype=str)
-
-            # Tìm cột
-            name_col = next((c for c in df.columns if 'tên' in str(c).lower()), None)
-            class_col = next((c for c in df.columns if 'lớp' in str(c).lower()), None)
-            if not name_col or not class_col:
-                st.error("Không tìm thấy cột 'Họ tên' hoặc 'Lớp'!")
+            # === ĐỌC DỮ LIỆU ===
+            try:
+                if file_name.endswith('.csv'):
+                    df = pd.read_csv(fh, dtype=str, encoding='utf-8-sig')
+                else:
+                    df = pd.read_excel(fh, engine='openpyxl', dtype=str)
+            except Exception as e:
+                st.error(f"Lỗi đọc file: {e}")
                 return False
+
+            if df.empty:
+                st.error("File rỗng hoặc không có dữ liệu!")
+                return False
+
+            # === TÌM CỘT HỌ TÊN & LỚP (THÔNG MINH) ===
+            name_col = None
+            class_col = None
+            possible_name_keywords = ['họ tên', 'họ và tên', 'họ', 'tên', 'họtên', 'name', 'student', 'học sinh']
+            possible_class_keywords = ['lớp', 'class', 'lop', 'grade']
+
+            for col in df.columns:
+                col_clean = str(col).strip().lower().replace(' ', '').replace('_', '')
+                if any(keyword in col_clean for keyword in possible_name_keywords):
+                    name_col = col
+                if any(keyword in col_clean for keyword in possible_class_keywords):
+                    class_col = col
+
+            # === BÁO LỖI RÕ RÀNG NẾU THIẾU CỘT ===
+            if not name_col:
+                st.error("**LỖI: Không tìm thấy cột Họ tên!**\n"
+                         "Các cột có trong file:\n" +
+                         "\n".join([f"- `{c}`" for c in df.columns[:10]]) +
+                         ("\n... (và nhiều cột khác)" if len(df.columns) > 10 else ""))
+                return False
+
+            if not class_col:
+                st.error("**LỖI: Không tìm thấy cột Lớp!**\n"
+                         "Các cột có trong file:\n" +
+                         "\n".join([f"- `{c}`" for c in df.columns[:10]]) +
+                         ("\n... (và nhiều cột khác)" if len(df.columns) > 10 else ""))
+                return False
+
+            # === ĐỔI TÊN CỘT ===
             df = df.rename(columns={name_col: 'Họ tên', class_col: 'Lớp'})
 
-            # Xử lý điểm
+            # === XỬ LÝ ĐIỂM ===
             point_cols = [c for c in df.columns if c not in ['Họ tên', 'Lớp', 'Zalo_ID']]
+            if not point_cols:
+                st.warning("Không tìm thấy cột điểm nào!")
+                return False
+
             for c in point_cols:
-                df[c] = pd.to_numeric(df[c], errors='coerce')
+                df[c] = pd.to_numeric(df[c].str.strip(), errors='coerce')
+
             df['ĐTB'] = df[point_cols].mean(axis=1).round(2)
 
-            # Chuẩn hóa
+            # === CHUẨN HÓA DỮ LIỆU ===
             records = []
             for _, r in df.iterrows():
-                records.append({
-                    "Họ tên": r['Họ tên'],
-                    "Lớp": r['Lớp'],
+                record = {
+                    "Họ tên": str(r['Họ tên']).strip(),
+                    "Lớp": str(r['Lớp']).strip(),
                     "Zalo_ID": str(r.get('Zalo_ID', '')).strip(),
                     "ĐTB": float(r['ĐTB']) if pd.notna(r['ĐTB']) else None,
-                    "Môn": {c: float(r[c]) if pd.notna(r[c]) else None for c in point_cols}
-                })
+                    "Môn": {}
+                }
+                for c in point_cols:
+                    val = r[c]
+                    record["Môn"][c] = float(val) if pd.notna(val) else None
+                records.append(record)
 
-            # Lưu cleaned.json
+            # === LƯU FILE JSON ===
             output = json.dumps(records, ensure_ascii=False, indent=2).encode('utf-8')
             media = MediaFileUpload(BytesIO(output), mimetype='application/json')
-            drive_service.files().create(
-                body={
-                    'name': f"cleaned_{int(time.time())}.json",
-                    'parents': [folders['AI1_OUTPUT']]
-                },
-                media_body=media
-            ).execute()
-
-            st.success(f"AI 1: Đã xử lý `{file_name}` → lưu JSON!")
-            return True
+            try:
+                drive_service.files().create(
+                    body={
+                        'name': f"cleaned_{int(time.time())}.json",
+                        'parents': [folders['AI1_OUTPUT']]
+                    },
+                    media_body=media
+                ).execute()
+                st.success(f"**AI 1 HOÀN TẤT!**\n"
+                           f"Đã xử lý: `{file_name}`\n"
+                           f"Học sinh: {len(records)}\n"
+                           f"Cột điểm: {len(point_cols)}")
+                return True
+            except Exception as e:
+                st.error(f"Lỗi lưu file: {e}")
+                return False
     # AI 2: Phân tích
         # AI 2: Phân tích
         # AI 2: Phân tích
