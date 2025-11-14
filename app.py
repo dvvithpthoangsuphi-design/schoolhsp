@@ -16,6 +16,14 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import os
 from dotenv import load_dotenv
+st.set_page_config(page_title="AI Dự Báo Điểm", layout="wide")
+# === CẤU HÌNH TRANG – BẮT BUỘC ĐẦU TIÊN ===
+st.set_page_config(
+    page_title="AI Dự Báo Điểm",
+    page_icon="robot",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # === TỰ ĐỘNG LOAD .env NẾU CÓ (CHỈ LOCAL) ===
 if os.path.exists('.env'):
@@ -37,7 +45,7 @@ if not ZALO_TOKEN:
     st.warning("Chưa có ZALO_OA_TOKEN → Không gửi Zalo được")
 
 # ===================== CONFIG =====================
-st.set_page_config(page_title="AI Dự Báo Điểm", layout="wide")
+
 
 # Load config.yaml
 if not os.path.exists('config.yaml'):
