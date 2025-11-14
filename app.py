@@ -276,8 +276,41 @@ def run_ai2():
 # AI 3: Biểu đồ + Gửi Zalo (KIỂM TRA CỘT AN TOÀN)
 def run_ai3():
 # KIỂM TRA AI2 ĐÃ CHẠY CHƯA
+    if 'ai2_result' not in st.session_state or not st.session_state.ai2_result:
+        st.error("**LỖI: Chưa có kết quả từ AI 2!**\n"
+                 "Vui lòng chạy **AI 1 → AI 2** trước.")
+        return False
+        
+    if 'ai2_result' not in st.session_state:
+        st.error("Chưa có dữ liệu từ AI 2! Chạy AI1 → AI2 trước.")
+        return False
 
+    df = pd.DataFrame(st.session_state.ai2_result)
+    if df.empty:
+        st.error("Dữ liệu AI2 rỗng!")
+        return False
 
+    # KIỂM TRA CỘT
+    if 'Lớp' not in df.columns or 'ĐTB' not in df.columns:
+        st.error(f"Thiếu cột: Lớp={'✓' if 'Lớp' in df.columns else '✗'}, ĐTB={'✓' if 'ĐTB' in df.columns else '✗'}")
+        return False
+
+    # BIỂU ĐỒ 1
+    try:
+        class_avg = df.groupby('Lớp')['ĐTB'].mean().round(2).reset_index()
+        fig1 = px.bar(class_avg, x='Lớp', y='ĐTB', title="ĐTB theo lớp")
+        st.plotly_chart(fig1, use_container_width=True)
+    except:
+        st.warning("Không vẽ được biểu đồ lớp.")
+
+    # BIỂU ĐỒ 2
+    try:
+        fig2 = px.pie(df['Đánh giá'].value_counts(), names=df['Đánh giá'].value_counts().index, title="Học lực")
+        st.plotly_chart(fig2, use_container_width=True)
+    except:
+        st.warning("Không vẽ được biểu đồ học lực.")
+
+    st.success("AI 3: Hoàn tất!")
 
 # === GỬI ZALO (CHỈ GỬI NẾU CÓ ĐỦ CỘT) ===
 zalo_token = os.getenv('ZALO_OA_TOKEN')
