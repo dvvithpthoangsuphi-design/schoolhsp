@@ -14,6 +14,27 @@ from io import BytesIO
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+import os
+from dotenv import load_dotenv
+
+# === TỰ ĐỘNG LOAD .env NẾU CÓ (CHỈ LOCAL) ===
+if os.path.exists('.env'):
+    load_dotenv()
+    print("Local mode: .env loaded")
+
+# === ĐỌC BIẾN MÔI TRƯỜNG (LOCAL & RENDER) ===
+SERVICE_ACCOUNT_JSON = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+ZALO_TOKEN = os.getenv('ZALO_OA_TOKEN')
+
+# === KIỂM TRA ===
+if not SERVICE_ACCOUNT_JSON:
+    st.error("Thiếu GOOGLE_APPLICATION_CREDENTIALS!\n"
+             "Local: Kiểm tra file .env\n"
+             "Render: Kiểm tra Environment Variables")
+    st.stop()
+
+if not ZALO_TOKEN:
+    st.warning("Chưa có ZALO_OA_TOKEN → Không gửi Zalo được")
 
 # ===================== CONFIG =====================
 st.set_page_config(page_title="AI Dự Báo Điểm", layout="wide")
@@ -280,7 +301,7 @@ def run_ai3():
         st.error("**LỖI: Chưa có kết quả từ AI 2!**\n"
                  "Vui lòng chạy **AI 1 → AI 2** trước.")
         return False
-        
+
     if 'ai2_result' not in st.session_state:
         st.error("Chưa có dữ liệu từ AI 2! Chạy AI1 → AI2 trước.")
         return False
@@ -314,56 +335,56 @@ def run_ai3():
 
 # === GỬI ZALO (CHỈ GỬI NẾU CÓ ĐỦ CỘT) ===
 zalo_token = os.getenv('ZALO_OA_TOKEN')
-    if zalo_token and not missing_zalo:
-        if st.button("Gửi Báo Cáo Qua Zalo", type="primary"):
-            with st.spinner("Đang gửi tin nhắn..."):
-                success = 0
-                failed = 0
-                for _, r in df.iterrows():
-                    zid = str(r.get('Zalo_ID', '')).strip()
-                    if not zid or zid in ['nan', 'None', '']:
+if zalo_token and not missing_zalo:
+    if st.button("Gửi Báo Cáo Qua Zalo", type="primary"):
+        with st.spinner("Đang gửi tin nhắn..."):
+            success = 0
+            failed = 0
+            for _, r in df.iterrows():
+                zid = str(r.get('Zalo_ID', '')).strip()
+                if not zid or zid in ['nan', 'None', '']:
+                    failed += 1
+                    continue
+
+                msg = f"**BÁO CÁO HỌC TẬP**\n"
+                msg += f"Họ tên: *{r['Họ tên']}*\n"
+                msg += f"Lớp: {r['Lớp']}\n"
+                msg += f"ĐTB: *{r['ĐTB']}* ({r['Đánh giá']})\n"
+                msg += f"Dự báo: *{r.get('Dự báo', 'N/A')}*\n"
+                msg += f"Xếp hạng lớp: *{r.get('Xếp hạng lớp', 'N/A')}*\n"
+                msg += f"Cảnh báo: {r.get('Cảnh báo', 'Ổn định')}"
+
+                payload = {
+                    "recipient": {"user_id": zid},
+                    "message": {"text": msg}
+                }
+                try:
+                    response = requests.post(
+                        "https://openapi.zalo.me/v2.0/oa/message/cs",
+                        headers={
+                            "access_token": zalo_token,
+                            "Content-Type": "application/json"
+                        },
+                        json=payload,
+                        timeout=10
+                    )
+                    if response.status_code == 200:
+                        success += 1
+                    else:
                         failed += 1
-                        continue
+                except:
+                    failed += 1
+                time.sleep(0.8)  # Tránh spam
 
-                    msg = f"**BÁO CÁO HỌC TẬP**\n"
-                    msg += f"Họ tên: *{r['Họ tên']}*\n"
-                    msg += f"Lớp: {r['Lớp']}\n"
-                    msg += f"ĐTB: *{r['ĐTB']}* ({r['Đánh giá']})\n"
-                    msg += f"Dự báo: *{r.get('Dự báo', 'N/A')}*\n"
-                    msg += f"Xếp hạng lớp: *{r.get('Xếp hạng lớp', 'N/A')}*\n"
-                    msg += f"Cảnh báo: {r.get('Cảnh báo', 'Ổn định')}"
+            st.success(f"**GỬI ZALO HOÀN TẤT!**\n"
+                       f"Thành công: {success}\n"
+                       f"Thất bại: {failed}")
+elif zalo_token and missing_zalo:
+    st.warning(f"**Không thể gửi Zalo:** Thiếu cột `{', '.join(missing_zalo)}`")
+else:
+    st.info("**Zalo chưa được cấu hình.** Thiết lập `ZALO_OA_TOKEN` trong Environment.")
 
-                    payload = {
-                        "recipient": {"user_id": zid},
-                        "message": {"text": msg}
-                    }
-                    try:
-                        response = requests.post(
-                            "https://openapi.zalo.me/v2.0/oa/message/cs",
-                            headers={
-                                "access_token": zalo_token,
-                                "Content-Type": "application/json"
-                            },
-                            json=payload,
-                            timeout=10
-                        )
-                        if response.status_code == 200:
-                            success += 1
-                        else:
-                            failed += 1
-                    except:
-                        failed += 1
-                    time.sleep(0.8)  # Tránh spam
-
-                st.success(f"**GỬI ZALO HOÀN TẤT!**\n"
-                           f"Thành công: {success}\n"
-                           f"Thất bại: {failed}")
-    elif zalo_token and missing_zalo:
-        st.warning(f"**Không thể gửi Zalo:** Thiếu cột `{', '.join(missing_zalo)}`")
-    else:
-        st.info("**Zalo chưa được cấu hình.** Thiết lập `ZALO_OA_TOKEN` trong Environment.")
-
-    return True
+return True
     # === NÚT CHẠY AI (4 CỘT – ĐỂU, ĐẸP) ===
 st.markdown("---")
 st.subheader("Chạy AI Pipeline")
