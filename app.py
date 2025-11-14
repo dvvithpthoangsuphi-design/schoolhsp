@@ -384,7 +384,7 @@ elif zalo_token and missing_zalo:
 else:
     st.info("**Zalo chưa được cấu hình.** Thiết lập `ZALO_OA_TOKEN` trong Environment.")
 
-return True
+    return True
     # === NÚT CHẠY AI (4 CỘT – ĐỂU, ĐẸP) ===
 st.markdown("---")
 st.subheader("Chạy AI Pipeline")
