@@ -16,7 +16,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import os
 from dotenv import load_dotenv
-st.set_page_config(page_title="AI Dự Báo Điểm", layout="wide")
+
 # === CẤU HÌNH TRANG – BẮT BUỘC ĐẦU TIÊN ===
 st.set_page_config(
     page_title="AI Dự Báo Điểm",
