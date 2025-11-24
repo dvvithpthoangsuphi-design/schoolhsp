@@ -676,9 +676,9 @@ def find_data_start_row(df, name_col):
     st.warning("❌ Không tìm thấy hàng bắt đầu dữ liệu học sinh")
     return None
 
-# === AI 1: XỬ LÝ DỮ LIỆU THÔNG MINH VỚI TÊN MÔN HỌC CHUẨN ===
+# === AI 1: XỬ LÝ DỮ LIỆU THÔNG MINH VỚI TÊN MÔN HỌC CHUẨN - ĐÃ SỬA LỖI TRÙNG LẶP ===
 def run_advanced_ai1():
-    """AI 1: Xử lý thông minh với tên môn học được chuẩn hóa"""
+    """AI 1: Xử lý thông minh với tên môn học được chuẩn hóa - ĐÃ SỬA LỖI TRÙNG LẶP"""
     if drive_service is None:
         st.error("❌ Không thể kết nối Google Drive")
         return False
@@ -701,6 +701,9 @@ def run_advanced_ai1():
             total_students = 0
             subject_statistics = defaultdict(int)
             invalid_names_found = []
+            
+            # TẠO SET ĐỂ THEO DÕI HỌC SINH ĐÃ XỬ LÝ - TRÁNH TRÙNG LẶP
+            processed_students = set()
             
             for file_idx, file in enumerate(files, 1):
                 st.info(f"📖 Đang xử lý file {file_idx}/{len(files)}: **{file['name']}**")
@@ -789,6 +792,7 @@ def run_advanced_ai1():
 
                         students_found = 0
                         invalid_in_sheet = []
+                        duplicate_in_sheet = 0
                         
                         for idx, row in df_filtered.iterrows():
                             ten = str(row[name_col])
@@ -796,6 +800,17 @@ def run_advanced_ai1():
                             if not is_valid_student_name(ten):
                                 invalid_in_sheet.append(ten)
                                 continue
+
+                            # TẠO ID DUY NHẤT CHO HỌC SINH (TÊN + LỚP)
+                            student_id = f"{ten}_{lop}".strip().lower()
+                            
+                            # KIỂM TRA TRÙNG LẶP
+                            if student_id in processed_students:
+                                duplicate_in_sheet += 1
+                                continue
+                            
+                            # ĐÁNH DẤU ĐÃ XỬ LÝ
+                            processed_students.add(student_id)
 
                             # XỬ LÝ ĐIỂM MÔN HỌC VỚI TÊN CHUẨN
                             mon_dict = {}
@@ -877,6 +892,9 @@ def run_advanced_ai1():
                             total_students += 1
 
                         st.success(f"   ✅ Tìm thấy {students_found} học sinh trong lớp {lop}")
+                        
+                        if duplicate_in_sheet > 0:
+                            st.warning(f"   🔄 Đã bỏ qua {duplicate_in_sheet} học sinh trùng lặp")
                         
                         # Hiển thị các tên không hợp lệ đã bị loại bỏ
                         if invalid_in_sheet:
